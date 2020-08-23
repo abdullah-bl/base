@@ -1,0 +1,38 @@
+{
+  "name": "base",
+  "version": "0.0.1",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-webpack dev",
+    "compile": "electron-webpack",
+    "dist": "yarn compile && electron-builder",
+    "dist:dir": "yarn dist --dir -c.compression=store -c.mac.identity=null",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "backup": "^1.1.0",
+    "electron-nedb": "https://github.com/abdullah-bl/electron-nedb",
+    "electron-store": "^5.2.0",
+    "electron-util": "^0.14.1",
+    "react": "^16.13.1",
+    "react-dom": "^16.13.1",
+    "react-feather": "^2.0.8",
+    "react-hot-loader": "^4.12.21",
+    "react-router-dom": "^5.2.0",
+    "source-map-support": "^0.5.16",
+    "unistore": "^3.5.2"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.9.6",
+    "@babel/preset-env": "^7.9.6",
+    "@babel/preset-react": "^7.9.4",
+    "@hot-loader/react-dom": "^16.13.0",
+    "babel-loader": "^8.1.0",
+    "electron": "latest",
+    "electron-builder": "^22.4.1",
+    "electron-webpack": "^2.8.2",
+    "node-sass": "^4.14.1",
+    "sass-loader": "^9.0.3",
+    "webpack": "~4.42.1"
+  }
+}

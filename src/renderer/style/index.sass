@@ -1,0 +1,57 @@
+
+$bg-color: white
+$text-color: blue 
+$navbar-bg-color: whitesmoke
+
+@import './fonts.sass'
+@import './actionbar.sass'
+@import './navbar.sass'
+
+// scrollbar width 
+::-webkit-scrollbar
+	width: 7px
+
+/* Track */
+::-webkit-scrollbar-track
+	background: transparent
+
+/* Handle */
+::-webkit-scrollbar-thumb
+	background: #888
+
+*
+	margin: 0
+	padding: 0
+	border: 0
+	vertical-align: baseline
+	user-select: none
+	transition: width 5s, height 5s, linear
+
+html, body
+	font-family: 'Quest','system-ui', 'Segoe UI', sans-serif
+	overflow: hidden
+	direction: rtl
+
+a
+	text-decoration: none
+	font-size: medium
+	color: black
+	display: flex
+	justify-content: space-between
+	align-items: center
+
+// layout 
+
+#app
+	height: 100%
+	display: flex
+	overflow-x: hidden
+
+	nav > a
+		width: 100%
+
+	main
+		flex: 1
+		padding: 0
+		height: 100vh
+		overflow: scroll

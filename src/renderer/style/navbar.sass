@@ -1,0 +1,31 @@
+nav
+  padding-top: 2em
+  width: 13em
+  height: 100vh
+  flex-direction: column
+  display: flex
+  align-items: center
+  -webkit-app-region: drag
+  background: whitesmoke
+  user-select: none
+  text-align: center
+  overflow: hidden
+  z-index: 1000
+  text-align: right
+
+a
+  padding: 10px
+  display: flex
+  justify-content: space-between
+  align-items: center
+
+nav > a:hover
+  background: #0404040d
+  cursor: default
+  /* border-left: 4px solid #272727; */
+
+nav > a.active
+  color: black
+  background: #0404040d
+  /* border-left-color: var(--grey); */
+  border-left: 4px solid #272727
