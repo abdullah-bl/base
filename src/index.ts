@@ -1,51 +1,51 @@
-import { serve } from '@hono/node-server';
-import app from './server/hono-app.js';
-import env from './env.js';
-import { db } from './db/client.js';
+import { serve } from '@hono/node-server'
+import app from './server/hono-app.js'
+import { autoMigrate } from './db/migrate.js'
+import env from './env.js'
 
-const PORT = env.PORT;
+const PORT = env.PORT
 
-// Start server
-const server = serve({
-  fetch: app.fetch,
-  port: PORT,
-});
+async function main() {
+  // Run migrations before starting server
+  await autoMigrate()
 
-console.log('🚀 Base BaaS Server started');
-console.log(`   Port: ${PORT}`);
-console.log(`   Database: ${env.DATABASE_URL}`);
-console.log(`   Version: 0.1.0`);
-console.log('');
-console.log('Health check: http://localhost:' + PORT + '/api/health');
+  const server = serve({
+    fetch: app.fetch,
+    port: PORT,
+  })
 
-// Graceful shutdown
-const shutdown = async (signal: string) => {
-  console.log(`\n📴 Received ${signal}, shutting down gracefully...`);
-  server.close(async (err) => {
-    if (err) {
-      console.error('❌ Error closing server:', err);
-      process.exit(1);
-    }
-    console.log('✅ Server closed successfully');
-    process.exit(0);
-  });
+  console.log('🚀 Base BaaS Server started')
+  console.log(`   Port: ${PORT}`)
+  console.log(`   Database: ${env.DATABASE_URL}`)
+  console.log(`   Version: 0.1.0`)
+  console.log('')
+  console.log(`Health check: http://localhost:${PORT}/api/health`)
+  console.log(`Auth: http://localhost:${PORT}/api/auth/sign-up/email`)
 
-  // Force shutdown after 10 seconds
-  setTimeout(() => {
-    console.error('❌ Forced shutdown after timeout');
-    process.exit(1);
-  }, 10000);
-};
+  // Graceful shutdown
+  const shutdown = async (signal: string) => {
+    console.log(`\n📴 Received ${signal}, shutting down gracefully...`)
+    server.close((err: unknown) => {
+      if (err) {
+        console.error('❌ Error closing server:', err)
+        process.exit(1)
+      }
+      console.log('✅ Server closed successfully')
+      process.exit(0)
+    })
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+    // Force shutdown after 10 seconds
+    setTimeout(() => {
+      console.error('❌ Forced shutdown after timeout')
+      process.exit(1)
+    }, 10000)
+  }
 
-// Handle uncaught errors
-process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error);
-  shutdown('UNCAUGHT_EXCEPTION');
-});
+  process.on('SIGTERM', () => shutdown('SIGTERM'))
+  process.on('SIGINT', () => shutdown('SIGINT'))
+}
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-});
+main().catch((err) => {
+  console.error('❌ Failed to start server:', err)
+  process.exit(1)
+})

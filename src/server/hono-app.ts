@@ -22,15 +22,15 @@ app.get('/api/health', (c) => {
   })
 })
 
-// Better Auth routes — handles sign-up, sign-in, sign-out, etc.
-app.all('/api/auth/*', async (c) => {
-  return await authHandler(c.req.raw)
-})
-
-// Protected: get current session user
+// Protected: get current session user (registered BEFORE wildcard to take priority)
 app.get('/api/auth/me', requireAuth, (c) => {
   const user = c.get('user' as never) as any
   return c.json({ user })
+})
+
+// Better Auth routes — handles sign-up, sign-in, sign-out, etc.
+app.all('/api/auth/*', async (c) => {
+  return await authHandler(c.req.raw)
 })
 
 export default app
