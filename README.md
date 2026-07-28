@@ -17,7 +17,7 @@ bun run src/index.ts  # running on :3000
 - **Files** — Upload, download, delete with ownership tracking (local disk or S3)
 - **Admin panel** — Data viewer, logs, audit, backups, SQL console at `/_`
 - **Backup / restore** — `VACUUM INTO` snapshots with checksum manifests
-- **CLI** — `base` standalone CLI; compile to a single-file Bun executable
+- **CLI** — `base` standalone CLI; compile to a single Bun executable (Admin UI embedded)
 - **OpenAPI** — Spec at `/api/openapi.json` generated from the registry
 - **SQLite** — libSQL/SQLite embedded, zero-config (Turso-ready)
 - **Schema evolution** — Additive column/index migrations with dry-run CLI
@@ -27,24 +27,38 @@ bun run src/index.ts  # running on :3000
 
 ## Quick Start
 
+### Binary (recommended)
+
+Download the binary for your platform from the
+[latest release](https://github.com/abdullah-bl/base/releases/latest):
+
 ```bash
-# Install
+# Linux x64
+curl -fL https://github.com/abdullah-bl/base/releases/latest/download/base-linux-x64 \
+  -o base
+chmod +x base
+sudo mv base /usr/local/bin/base
+
+mkdir my-backend && cd my-backend
+base init
+base serve
+# Admin UI → http://localhost:3000/_/
+```
+
+Available builds: `base-linux-x64`, `base-linux-arm64`,
+`base-darwin-arm64`, and `base-windows-x64.exe`. Each release also includes
+`AGENTS.md` as the operational and architecture guide.
+
+Site: [abdullah-bl.github.io/base](https://abdullah-bl.github.io/base/) · Releases: [github.com/abdullah-bl/base/releases](https://github.com/abdullah-bl/base/releases)
+
+### From source
+
+```bash
 bun install
-
-# Configure (optional for local dev — secret is auto-generated with a warning)
 cp .env.example .env
-
-# Build admin UI (optional for API-only)
 bun run build:admin
-
-# Start dev server
 bun run dev
-
-# Verify
-bun run check
-
-# Server runs at http://localhost:3000
-# Admin UI at http://localhost:3000/_/
+# Server → http://localhost:3000 · Admin → http://localhost:3000/_/
 ```
 
 ## Define Collections
@@ -156,13 +170,34 @@ Admin UI: build with `bun run build:admin`, open `http://localhost:3000/_/`.
 
 ### CLI
 
+Empty folder / Docker (single binary — Admin UI embedded):
+
 ```bash
+# Download the matching release binary (Linux x64 shown)
+curl -fL https://github.com/abdullah-bl/base/releases/latest/download/base-linux-x64 \
+  -o base
+chmod +x base
+sudo mv base /usr/local/bin/base
+
+mkdir my-backend && cd my-backend
+base init                   # .env, collections.ts, data/ (skips existing)
+base serve                  # HOST:PORT default 0.0.0.0:3000
+base serve --init           # scaffold if needed, then serve
+base serve -p 8080 -H 0.0.0.0
+```
+
+Tag a release to publish the platform binaries and `AGENTS.md`:
+`git tag vX.Y.Z && git push origin vX.Y.Z` (see `.github/workflows/release.yml`).
+
+From source:
+
+```bash
+bun run cli -- init
 bun run cli -- serve
 bun run cli -- doctor
 bun run cli -- schema status
 bun run cli -- db backup
 bun run cli -- admin promote you@example.com
-bun run build:binary   # → dist/base
 ```
 
 ## Field Types
@@ -250,11 +285,13 @@ Environment variables (see `.env.example`):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `3000` | Server port |
+| `PORT` | `3000` | Server port (`--port` / `-p`) |
+| `HOST` | `0.0.0.0` | Bind address (`--host` / `--hostname` / `-H`). Do not use `HOSTNAME` — Docker sets that. |
 | `NODE_ENV` | `development` | `development` / `production` / `test` |
 | `DATABASE_URL` | `file:./data/app.db` | libSQL connection URL |
 | `DATABASE_AUTH_TOKEN` | — | Turso auth token (if using `libsql://`) |
 | `BETTER_AUTH_SECRET` | *(dev auto-generated)* | **Required in production** |
+| `SETTINGS_ENCRYPTION_KEY` | — | Optional dedicated key for encrypting sensitive Admin → Settings values at rest (falls back to `BETTER_AUTH_SECRET`) |
 | `BETTER_AUTH_URL` | `http://localhost:3000` | Base URL for auth |
 | `CORS_ORIGINS` | `*` | Explicit list required in production |
 | `STORAGE_DRIVER` | `local` | `local` or `s3` |
@@ -271,13 +308,37 @@ Environment variables (see `.env.example`):
 | `REALTIME_REPLAY_BUFFER` | `100` | Ring buffer size for `Last-Event-ID` replay |
 | `ADMIN_ENABLED` | `true` | Serve admin API + UI |
 | `ADMIN_PATH` | `/_` | Admin UI mount path |
+| `ADMIN_DIST_DIR` | — | Optional on-disk admin SPA override (binaries embed the UI by default) |
 | `ADMIN_TOKEN` | — | Break-glass admin header (min 32 chars) |
 | `ADMIN_EMAILS` | — | Comma-separated emails auto-promoted to admin |
 | `LOG_LEVEL` / `LOG_PERSIST` | `info` / `true` | Structured logging |
 | `BACKUP_DIR` / `BACKUP_RETENTION` | `./data/backups` / `10` | Snapshot storage |
 | `RATE_LIMIT_ENABLED` | `true` | In-memory rate limiting |
+| `TRUST_PROXY` | `false` | Honor `X-Forwarded-For` / `X-Real-Ip` (only behind a stripping proxy) |
 | `WEBHOOKS_ENABLED` | `false` | Outbound change webhooks |
+| `SMTP_PASSWORD` | — | SMTP auth password (env-only; host/port/from editable in Admin → Settings) |
+| `OAUTH_GITHUB_*` / `OAUTH_GOOGLE_*` | off | Social login; also editable in Admin → Settings (restart to apply) |
+| `MCP_ENABLED` / `MCP_PATH` | `false` / `/api/mcp` | MCP JSON-RPC endpoint for agents; also editable in Admin → Settings |
 | `LITESTREAM_BUCKET` | — | Separate bucket for Litestream (may share `S3_*` credentials) |
+
+### Runtime settings (Admin → Settings)
+
+Many operational flags (rate limits, logging, realtime, SMTP host/from, OAuth client IDs/secrets, MCP toggles, etc.) can be overridden at runtime via **Admin → Settings** (`GET`/`PATCH /api/admin/settings`).
+
+- **Precedence:** database override → environment → schema default
+- **Boot env is read-only:** the admin UI never writes `.env` / process environment. Structural secrets such as `BETTER_AUTH_SECRET`, `ADMIN_TOKEN`, S3 keys, and `SMTP_PASSWORD` stay env-only.
+- **Sensitive values:** marked settings (e.g. OAuth client secrets) are stored encrypted in `_base_settings` (AES-256-GCM). API responses return `[REDACTED]` / `configured: true`; blank PATCH values keep the existing secret.
+- **Encryption key:** set `SETTINGS_ENCRYPTION_KEY` in production (recommended). If unset, Base derives the key from `BETTER_AUTH_SECRET`.
+- **Restart-required:** OAuth enablement, email verification, and MCP path changes rebuild or require a process restart; the UI surfaces which keys need a restart after save.
+
+### Benchmarks
+
+```bash
+bun run bench:smoke   # local Base HTTP smoke (not part of CI)
+bun run bench:stress  # larger seed + concurrency
+```
+
+See [`benchmarks/README.md`](benchmarks/README.md) and [`benchmarks/compare.md`](benchmarks/compare.md) for PocketBase comparison protocol.
 
 ## Deployment
 

@@ -76,7 +76,7 @@
 <span class="line"><b>06</b>    body: f.text().required(),</span>
 <span class="line"><b>07</b>    authorId: f.reference(<span class="s">'user'</span>),</span>
 <span class="line"><b>08</b>  },</span>
-<span class="line"><b>09</b>  access: { read: <span class="s">'public'</span>, write: <span class="s">'owner'</span> },</span>
+<span class="line"><b>09</b>  access: { create: <span class="s">'owner'</span>, read: <span class="s">'public'</span> },</span>
 <span class="line"><b>10</b>})</span></code></pre>
             <div class="generated">
               <span>GENERATED</span>
@@ -128,9 +128,12 @@
         <div class="install-copy">
           <p class="eyebrow light"><span></span> Quickstart</p>
           <h2>From zero to API<br />in three commands.</h2>
-          <p>No account. No project wizard. Download the binary and start building locally.</p>
+          <p>No account. No project wizard. Choose your binary and start building locally.</p>
           <div class="os-list">
-            <span>macOS ARM</span><span>Linux x64</span><span>Linux ARM</span><span>Windows</span>
+            <a href="https://github.com/abdullah-bl/base/releases/latest/download/base-darwin-arm64">macOS ARM ↓</a>
+            <a href="https://github.com/abdullah-bl/base/releases/latest/download/base-linux-x64">Linux x64 ↓</a>
+            <a href="https://github.com/abdullah-bl/base/releases/latest/download/base-linux-arm64">Linux ARM ↓</a>
+            <a href="https://github.com/abdullah-bl/base/releases/latest/download/base-windows-x64.exe">Windows ↓</a>
           </div>
         </div>
         <div class="terminal">
@@ -140,10 +143,11 @@
           </div>
           <div class="term" data-copy>
             <span class="prompt">$</span>
-            <code id="install-cmd">curl -fsSL https://github.com/abdullah-bl/base/releases/latest/download/install.sh | bash</code>
+            <code id="install-cmd">curl -fL https://github.com/abdullah-bl/base/releases/latest/download/base-linux-x64 -o base</code>
             <button type="button" class="copy" aria-label="Copy install command">COPY</button>
           </div>
-          <pre class="steps"><code><span class="muted"># create your backend</span>
+          <pre class="steps"><code><span class="muted"># install, then create your backend</span>
+<span class="prompt">$</span> chmod +x base &amp;&amp; sudo mv base /usr/local/bin/base
 <span class="prompt">$</span> mkdir my-backend &amp;&amp; cd my-backend
 <span class="prompt">$</span> base init
 <span class="success">✓</span> Created collections.ts and .env

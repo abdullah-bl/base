@@ -516,12 +516,19 @@ nav a:hover::after {
   gap: 0.5rem;
 }
 
-.os-list span {
+.os-list a {
   padding: 0.5rem 0.65rem;
   border: 1px solid #42433d;
   color: #aaa9a0;
   font: 500 0.58rem/1 var(--mono);
+  text-decoration: none;
   text-transform: uppercase;
+  transition: border-color 150ms ease, color 150ms ease;
+}
+
+.os-list a:hover {
+  border-color: var(--acid);
+  color: var(--acid);
 }
 
 .terminal {
