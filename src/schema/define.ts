@@ -1,4 +1,9 @@
-import type { CollectionSchema, FieldSchema, FieldType } from './types.js'
+import type {
+  CollectionAccess,
+  CollectionSchema,
+  FieldSchema,
+  FieldType,
+} from './types.js'
 import { registerCollection } from './registry.js'
 
 /**
@@ -16,57 +21,48 @@ class FieldBuilder {
     this.schema.type = type
   }
 
-  /** Set field as required (NOT NULL) */
   required(): this {
     this.schema.required = true
     this.schema.optional = false
     return this
   }
 
-  /** Set field as optional (nullable) */
   optional(): this {
     this.schema.optional = true
     this.schema.required = false
     return this
   }
 
-  /** Set a default value */
   default(value: unknown): this {
     this.schema.default = value
     return this
   }
 
-  /** Add unique constraint */
   unique(): this {
     this.schema.unique = true
     return this
   }
 
-  /** Set max length (for string/text fields) */
   max(n: number): this {
     this.schema.max = n
     return this
   }
 
-  /** Set min length (for string/text fields) */
   min(n: number): this {
     this.schema.min = n
     return this
   }
 
-  /** Set reference target collection */
   ref(collection: string): this {
     this.schema.ref = collection
     return this
   }
 
-  /** Set vector dimensions */
   vectorSize(dims: number): this {
     this.schema.vectorSize = dims
     return this
   }
 
-  /** Build and return the final FieldSchema object */
   build(): FieldSchema {
     return {
       type: this.schema.type as FieldType,
@@ -82,10 +78,6 @@ class FieldBuilder {
   }
 }
 
-/**
- * Field builder factory
- * Provides methods to start a field definition chain
- */
 const f = {
   string(): FieldBuilder {
     return new FieldBuilder('string')
@@ -116,28 +108,23 @@ const f = {
   },
 }
 
-/**
- * Define a collection with its fields and indexes
- * @param name - Collection name (must be unique)
- * @param config - Collection configuration with fields and indexes
- * @returns CollectionSchema object
- */
 function defineCollection(
   name: string,
   config: {
     fields: Record<string, FieldBuilder | FieldSchema>
     indexes?: Array<{ fields: string[]; name?: string; unique?: boolean }>
+    access?: CollectionAccess
   },
 ): CollectionSchema {
-  // Validate collection name
   if (!name || typeof name !== 'string') {
     throw new Error('Collection name must be a non-empty string')
   }
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
-    throw new Error(`Invalid collection name "${name}": must start with letter or underscore, contain only letters, numbers, and underscores`)
+    throw new Error(
+      `Invalid collection name "${name}": must start with letter or underscore, contain only letters, numbers, and underscores`,
+    )
   }
 
-  // Process fields - build any FieldBuilder instances
   const processedFields: Record<string, FieldSchema> = {}
   for (const [fieldName, fieldDef] of Object.entries(config.fields)) {
     if (fieldDef instanceof FieldBuilder) {
@@ -145,7 +132,9 @@ function defineCollection(
     } else if (typeof fieldDef === 'object' && fieldDef.type) {
       processedFields[fieldName] = fieldDef
     } else {
-      throw new Error(`Invalid field definition for "${fieldName}" in collection "${name}"`)
+      throw new Error(
+        `Invalid field definition for "${fieldName}" in collection "${name}"`,
+      )
     }
   }
 
@@ -153,13 +142,17 @@ function defineCollection(
     name,
     fields: processedFields,
     indexes: config.indexes || [],
+    access: config.access,
   }
 
-  // Auto-register the collection
   registerCollection(collection)
 
   return collection
 }
 
 export { defineCollection, f, FieldBuilder }
-export type { FieldSchema, CollectionSchema } from './types.js'
+export type {
+  FieldSchema,
+  CollectionSchema,
+  CollectionAccess,
+} from './types.js'

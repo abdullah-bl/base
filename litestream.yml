@@ -11,7 +11,8 @@
 #   S3_SECRET_ACCESS_KEY  — S3 secret key
 
 dbs:
-  - path: ./data/app.db
+  # Host path for local runs; in Docker Compose use /data/app.db via volume mount
+  - path: ${LITESTREAM_DB_PATH:-./data/app.db}
     replicas:
       - type: s3
         bucket: ${LITESTREAM_BUCKET}

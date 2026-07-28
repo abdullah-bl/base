@@ -1,19 +1,17 @@
-import { createClient } from '@libsql/client'
-import env from '../env.js'
+import { getClient } from './client.js'
 
 /**
  * Auto-migrate: create Better Auth tables if they don't exist.
- * Simple raw SQL approach — no drizzle-kit needed for initial setup.
  *
- * For production migrations with schema changes, use `drizzle-kit generate` + `drizzle-kit migrate`.
+ * Single source of truth for auth table DDL at boot.
+ * Drizzle schema in schema.ts mirrors these definitions for the Better Auth adapter.
+ * Prefer this boot path over drizzle-kit for auth tables; use schema evolution
+ * (src/schema/evolve.ts) for user collections.
  */
 export async function autoMigrate(): Promise<void> {
   console.log('🔄 Running auto-migration...')
 
-  const client = createClient({
-    url: env.DATABASE_URL,
-    authToken: env.DATABASE_AUTH_TOKEN,
-  })
+  const client = getClient()
 
   const statements = [
     `CREATE TABLE IF NOT EXISTS "user" (
@@ -22,6 +20,7 @@ export async function autoMigrate(): Promise<void> {
       "email" TEXT NOT NULL UNIQUE,
       "emailVerified" INTEGER NOT NULL DEFAULT 0,
       "image" TEXT,
+      "role" TEXT NOT NULL DEFAULT 'user',
       "createdAt" INTEGER NOT NULL DEFAULT 0,
       "updatedAt" INTEGER NOT NULL DEFAULT 0
     )`,
@@ -58,6 +57,73 @@ export async function autoMigrate(): Promise<void> {
       "createdAt" INTEGER,
       "updatedAt" INTEGER
     )`,
+    // Internal schema metadata for collection evolution
+    `CREATE TABLE IF NOT EXISTS "_base_schema" (
+      "collection" TEXT PRIMARY KEY NOT NULL,
+      "fingerprint" TEXT NOT NULL,
+      "schemaJson" TEXT NOT NULL,
+      "updatedAt" INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS "_base_migrations" (
+      "id" TEXT PRIMARY KEY NOT NULL,
+      "collection" TEXT NOT NULL,
+      "operation" TEXT NOT NULL,
+      "detail" TEXT NOT NULL,
+      "appliedAt" INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS "_base_logs" (
+      "id" TEXT PRIMARY KEY NOT NULL,
+      "ts" INTEGER NOT NULL,
+      "level" TEXT NOT NULL,
+      "kind" TEXT NOT NULL,
+      "message" TEXT NOT NULL,
+      "method" TEXT,
+      "path" TEXT,
+      "status" INTEGER,
+      "durationMs" INTEGER,
+      "requestId" TEXT,
+      "userId" TEXT,
+      "ip" TEXT,
+      "userAgent" TEXT,
+      "meta" TEXT
+    )`,
+    `CREATE INDEX IF NOT EXISTS "idx_base_logs_ts" ON "_base_logs" ("ts")`,
+    `CREATE INDEX IF NOT EXISTS "idx_base_logs_level" ON "_base_logs" ("level")`,
+    `CREATE TABLE IF NOT EXISTS "_base_audit" (
+      "id" TEXT PRIMARY KEY NOT NULL,
+      "ts" INTEGER NOT NULL,
+      "actorId" TEXT,
+      "actorKind" TEXT NOT NULL,
+      "action" TEXT NOT NULL,
+      "collection" TEXT,
+      "recordId" TEXT,
+      "before" TEXT,
+      "after" TEXT,
+      "ip" TEXT,
+      "requestId" TEXT
+    )`,
+    `CREATE INDEX IF NOT EXISTS "idx_base_audit_ts" ON "_base_audit" ("ts")`,
+    `CREATE TABLE IF NOT EXISTS "_base_api_keys" (
+      "id" TEXT PRIMARY KEY NOT NULL,
+      "name" TEXT NOT NULL,
+      "keyHash" TEXT NOT NULL UNIQUE,
+      "keyPrefix" TEXT NOT NULL,
+      "scopes" TEXT NOT NULL DEFAULT '["*"]',
+      "expiresAt" INTEGER,
+      "lastUsedAt" INTEGER,
+      "createdBy" TEXT,
+      "createdAt" INTEGER NOT NULL,
+      "revokedAt" INTEGER
+    )`,
+    `CREATE TABLE IF NOT EXISTS "_base_webhooks" (
+      "id" TEXT PRIMARY KEY NOT NULL,
+      "url" TEXT NOT NULL,
+      "secret" TEXT,
+      "collections" TEXT NOT NULL DEFAULT '["*"]',
+      "enabled" INTEGER NOT NULL DEFAULT 1,
+      "createdAt" INTEGER NOT NULL,
+      "updatedAt" INTEGER NOT NULL
+    )`,
   ]
 
   for (const stmt of statements) {
@@ -69,6 +135,29 @@ export async function autoMigrate(): Promise<void> {
     }
   }
 
-  console.log(`  ✅ ${statements.length} tables verified/created`)
+  // Additive column for existing DBs created before role existed
+  await ensureColumn(client, 'user', 'role', `TEXT NOT NULL DEFAULT 'user'`)
+
+  console.log(`  ✅ ${statements.length} statements verified/created`)
   console.log('✅ Auto-migration complete')
+}
+
+async function ensureColumn(
+  client: ReturnType<typeof getClient>,
+  table: string,
+  column: string,
+  definition: string,
+): Promise<void> {
+  const info = await client.execute(`PRAGMA table_info("${table}")`)
+  const cols = new Set(
+    (info.rows || []).map((r) =>
+      String((r as unknown as { name: string }).name),
+    ),
+  )
+  if (!cols.has(column)) {
+    await client.execute(
+      `ALTER TABLE "${table}" ADD COLUMN "${column}" ${definition}`,
+    )
+    console.log(`  ✅ Added column ${table}.${column}`)
+  }
 }

@@ -1,12 +1,5 @@
-import { createClient } from '@libsql/client'
-import env from '../env.js'
+import { getClient } from '../db/client.js'
 import type { CollectionSchema, FieldSchema } from '../schema/types.js'
-
-// Shared client for table creation (avoids Drizzle typing issues with dynamic tables)
-const client = createClient({
-  url: env.DATABASE_URL,
-  authToken: env.DATABASE_AUTH_TOKEN,
-})
 
 const ensuredTables = new Set<string>()
 
@@ -15,21 +8,31 @@ const ensuredTables = new Set<string>()
  * Creates it with CREATE TABLE IF NOT EXISTS if needed.
  * Idempotent — only checks once per table per process.
  */
-export async function ensureCollectionTable(collection: CollectionSchema): Promise<void> {
+export async function ensureCollectionTable(
+  collection: CollectionSchema,
+): Promise<void> {
   if (ensuredTables.has(collection.name)) return
 
+  const client = getClient()
   const ddl = buildCreateTableDDL(collection)
   await client.execute(ddl)
 
-  // Create indexes
   for (const index of collection.indexes) {
-    const indexName = index.name || `idx_${collection.name}_${index.fields.join('_')}`
+    const indexName =
+      index.name || `idx_${collection.name}_${index.fields.join('_')}`
     const unique = index.unique ? 'UNIQUE' : ''
-    const cols = index.fields.map(f => `"${f}"`).join(', ')
+    const cols = index.fields.map((f) => `"${f}"`).join(', ')
     try {
-      await client.execute(`CREATE ${unique} INDEX IF NOT EXISTS "${indexName}" ON "${collection.name}" (${cols})`)
+      await client.execute(
+        `CREATE ${unique} INDEX IF NOT EXISTS "${indexName}" ON "${collection.name}" (${cols})`,
+      )
     } catch (err) {
-      // Index might already exist or column missing — log but don't fail
+      // Unique indexes are required for correctness — fail hard
+      if (index.unique) {
+        throw new Error(
+          `Failed to create unique index "${indexName}" on "${collection.name}": ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
       console.warn(`⚠️  Index creation failed for ${indexName}:`, err)
     }
   }
@@ -38,14 +41,11 @@ export async function ensureCollectionTable(collection: CollectionSchema): Promi
   console.log(`✅ Table ensured: ${collection.name}`)
 }
 
-/**
- * Reset the ensured tables cache (for testing)
- */
 export function resetEnsuredTables(): void {
   ensuredTables.clear()
 }
 
-function buildCreateTableDDL(collection: CollectionSchema): string {
+export function buildCreateTableDDL(collection: CollectionSchema): string {
   const columns: string[] = [
     `"id" TEXT PRIMARY KEY NOT NULL`,
     `"createdAt" INTEGER NOT NULL DEFAULT 0`,
@@ -60,7 +60,7 @@ function buildCreateTableDDL(collection: CollectionSchema): string {
   return `CREATE TABLE IF NOT EXISTS "${collection.name}" (\n  ${columns.join(',\n  ')}\n)`
 }
 
-function buildColumnDef(fieldName: string, field: FieldSchema): string {
+export function buildColumnDef(fieldName: string, field: FieldSchema): string {
   const sqlType = getSqliteType(field.type)
   let def = `"${fieldName}" ${sqlType}`
 
@@ -77,7 +77,7 @@ function buildColumnDef(fieldName: string, field: FieldSchema): string {
   return def
 }
 
-function getSqliteType(fieldType: string): string {
+export function getSqliteType(fieldType: string): string {
   switch (fieldType) {
     case 'integer':
     case 'boolean':
@@ -95,7 +95,7 @@ function getSqliteType(fieldType: string): string {
   }
 }
 
-function formatDefault(value: unknown, fieldType: string): string {
+export function formatDefault(value: unknown, fieldType: string): string {
   if (fieldType === 'boolean') {
     return value ? '1' : '0'
   }

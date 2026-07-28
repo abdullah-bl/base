@@ -15,7 +15,9 @@ data/
 
 # Build
 dist/
+src/admin/dist/
 *.tsbuildinfo
+admin/node_modules/
 
 # Drizzle
 drizzle/
