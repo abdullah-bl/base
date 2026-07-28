@@ -139,3 +139,82 @@ bun run build:binary     # Compile single-file executable
 - GraphQL / functions / workflows
 - Cross-process realtime (multi-instance fan-out)
 - Expand/relations, batch transactions, email hooks, OAuth providers
+
+## Binary Releases (No Source Checkout Required at Runtime)
+
+Release artifacts are self-contained Bun executables. Operators need only the
+binary and a deployment directory; Bun, `node_modules`, the TypeScript source,
+the `admin/` directory, and `src/admin/dist/` are not needed at runtime. The
+Admin UI is embedded during compilation, so do not ship `admin-dist/` unless
+intentionally using the optional on-disk override.
+
+### Build binaries from a source checkout
+
+Building still requires the repository, Bun, and dependencies because the Admin
+UI must be compiled before it is embedded:
+
+```bash
+bun install --frozen-lockfile
+bun run build:binary       # current platform: dist/base
+bun run build:binary:all   # linux-x64, linux-arm64, darwin-arm64, windows-x64
+```
+
+`build:binary` builds the Admin UI and compiles `src/cli/index.ts`.
+`build:binary:all` builds the Admin UI and cross-compiles the four targets.
+Release CI also runs typecheck/tests and publishes SHA-256 checksums.
+
+### Run a released binary
+
+Run it from an empty application directory. `base init` creates the runtime
+configuration and data directories without overwriting existing files:
+
+```bash
+mkdir my-backend && cd my-backend
+/path/to/base init
+/path/to/base serve
+```
+
+The binary reads `./.env`, loads `./collections.ts`, stores the default SQLite
+database at `./data/app.db`, and serves the Admin UI at
+`http://localhost:3000/_/`. The generated `collections.ts` is the application
+schema and is required even though the Base runtime source is not present. Edit
+that file to define custom collections, then restart `base serve`; the binary
+does not compile or bundle application source at runtime.
+
+For a container or a one-command first boot:
+
+```bash
+base serve --init -p 8080 -H 0.0.0.0
+```
+
+For installation from the latest GitHub Release:
+
+```bash
+curl -fsSL https://github.com/abdullah-bl/base/releases/latest/download/install.sh | bash
+```
+
+The installer selects Linux or Apple Silicon macOS, verifies
+`sha256sums.txt` when available, and installs to `/usr/local/bin` or
+`~/.local/bin`. Windows users should download `base-windows-x64.exe` from the
+release page manually. There is currently no published `darwin-x64` artifact.
+
+### Binary operational commands
+
+Use the compiled executable for runtime operations; do not prefix commands with
+`bun run`:
+
+```bash
+base --help
+base version
+base doctor
+base schema status
+base schema apply
+base db backup
+base db list
+base admin create --email admin@example.com --password 'change-me'
+```
+
+Keep `.env`, `data/`, and `collections.ts` with the deployment. Back up
+`data/` before schema changes or restores. A binary can connect to a remote
+`DATABASE_URL` configured in `.env`, but local file storage and backups still
+depend on their configured paths.
