@@ -3,6 +3,8 @@ import { corsMiddleware } from './cors.js'
 import { errorHandler } from './error-handler.js'
 import { authHandler } from '../auth/handler.js'
 import { requireAuth } from '../auth/middleware.js'
+import { createCollectionRouter } from '../collections/router.js'
+import { getRegisteredCollections } from '../schema/index-registry.js'
 
 const app = new Hono()
 
@@ -22,7 +24,7 @@ app.get('/api/health', (c) => {
   })
 })
 
-// Protected: get current session user (registered BEFORE wildcard to take priority)
+// Protected: get current session user (before wildcard to take priority)
 app.get('/api/auth/me', requireAuth, (c) => {
   const user = c.get('user' as never) as any
   return c.json({ user })
@@ -32,5 +34,15 @@ app.get('/api/auth/me', requireAuth, (c) => {
 app.all('/api/auth/*', async (c) => {
   return await authHandler(c.req.raw)
 })
+
+// Mount collection CRUD routers
+const collections = getRegisteredCollections()
+for (const collection of collections) {
+  app.route(`/api/collections/${collection.name}`, createCollectionRouter(collection))
+}
+
+if (collections.length > 0) {
+  console.log(`📦 Mounted ${collections.length} collection(s): ${collections.map(c => c.name).join(', ')}`)
+}
 
 export default app

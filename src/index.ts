@@ -1,7 +1,12 @@
 import { serve } from '@hono/node-server'
+import env from './env.js'
+
+// Import collections FIRST — this registers them before the Hono app loads
+import '../collections.js'
+
+// Now import the app (it reads registered collections on load)
 import app from './server/hono-app.js'
 import { autoMigrate } from './db/migrate.js'
-import env from './env.js'
 
 const PORT = env.PORT
 
@@ -34,7 +39,6 @@ async function main() {
       process.exit(0)
     })
 
-    // Force shutdown after 10 seconds
     setTimeout(() => {
       console.error('❌ Forced shutdown after timeout')
       process.exit(1)
