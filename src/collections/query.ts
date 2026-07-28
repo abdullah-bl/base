@@ -8,11 +8,32 @@ import {
   type AuthUser,
 } from './access.js'
 
+export type FilterValue =
+  | string
+  | number
+  | boolean
+  | null
+  | { op: FilterOp; value?: unknown }
+
+export type FilterOp =
+  | 'eq'
+  | 'ne'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+  | 'like'
+  | 'in'
+  | 'null'
+  | 'nnull'
+
 export interface ListParams {
-  filter?: Record<string, string>
+  filter?: Record<string, FilterValue>
   sort?: string
   page?: number
   perPage?: number
+  /** Full-text search query (FTS5 when available, else LIKE fallback) */
+  search?: string
 }
 
 export interface ListResult<T = unknown> {
@@ -27,6 +48,133 @@ export interface ListResult<T = unknown> {
 
 const MAX_PER_PAGE = 100
 const DEFAULT_PER_PAGE = 20
+
+const OPS = new Set<FilterOp>([
+  'eq',
+  'ne',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+  'like',
+  'in',
+  'null',
+  'nnull',
+])
+
+export function buildFilterClause(
+  collection: CollectionSchema,
+  filter: Record<string, FilterValue> | undefined,
+): { sql: string[]; args: unknown[] } {
+  const whereClauses: string[] = []
+  const args: unknown[] = []
+
+  if (!filter) return { sql: whereClauses, args }
+
+  for (const [rawField, rawValue] of Object.entries(filter)) {
+    let field = rawField
+    let op: FilterOp = 'eq'
+    let value: unknown = rawValue
+
+    // Support field__op syntax: title__like, viewCount__gte
+    const opMatch = rawField.match(/^(.+)__(eq|ne|gt|gte|lt|lte|like|in|null|nnull)$/)
+    if (opMatch) {
+      field = opMatch[1]
+      op = opMatch[2] as FilterOp
+    } else if (
+      rawValue &&
+      typeof rawValue === 'object' &&
+      !Array.isArray(rawValue) &&
+      'op' in (rawValue as object)
+    ) {
+      const obj = rawValue as { op: FilterOp; value?: unknown }
+      if (!OPS.has(obj.op)) {
+        const err = new Error(`Unknown filter operator: ${obj.op}`) as Error & {
+          status?: number
+          code?: string
+        }
+        err.status = 400
+        err.code = 'VALIDATION_ERROR'
+        throw err
+      }
+      op = obj.op
+      value = obj.value
+    }
+
+    if (!(collection.fields[field] || isSystemField(field))) {
+      const err = new Error(`Unknown filter field: ${field}`) as Error & {
+        status?: number
+        code?: string
+      }
+      err.status = 400
+      err.code = 'VALIDATION_ERROR'
+      throw err
+    }
+
+    switch (op) {
+      case 'eq':
+        whereClauses.push(`"${field}" = ?`)
+        args.push(coerceValue(value))
+        break
+      case 'ne':
+        whereClauses.push(`"${field}" != ?`)
+        args.push(coerceValue(value))
+        break
+      case 'gt':
+        whereClauses.push(`"${field}" > ?`)
+        args.push(coerceValue(value))
+        break
+      case 'gte':
+        whereClauses.push(`"${field}" >= ?`)
+        args.push(coerceValue(value))
+        break
+      case 'lt':
+        whereClauses.push(`"${field}" < ?`)
+        args.push(coerceValue(value))
+        break
+      case 'lte':
+        whereClauses.push(`"${field}" <= ?`)
+        args.push(coerceValue(value))
+        break
+      case 'like':
+        whereClauses.push(`"${field}" LIKE ?`)
+        args.push(String(value))
+        break
+      case 'in': {
+        const list = Array.isArray(value)
+          ? value
+          : String(value)
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
+        if (list.length === 0) {
+          whereClauses.push('1=0')
+          break
+        }
+        whereClauses.push(
+          `"${field}" IN (${list.map(() => '?').join(', ')})`,
+        )
+        args.push(...list.map(coerceValue))
+        break
+      }
+      case 'null':
+        whereClauses.push(`"${field}" IS NULL`)
+        break
+      case 'nnull':
+        whereClauses.push(`"${field}" IS NOT NULL`)
+        break
+    }
+  }
+
+  return { sql: whereClauses, args }
+}
+
+function coerceValue(value: unknown): unknown {
+  if (value === 'true') return 1
+  if (value === 'false') return 0
+  if (value === 'null') return null
+  return value
+}
 
 export async function list(
   collection: CollectionSchema,
@@ -55,18 +203,20 @@ export async function list(
     args.push(...owner.args)
   }
 
-  if (params.filter) {
-    for (const [field, value] of Object.entries(params.filter)) {
-      if (!(collection.fields[field] || isSystemField(field))) {
-        const err = new Error(
-          `Unknown filter field: ${field}`,
-        ) as Error & { status?: number; code?: string }
-        err.status = 400
-        err.code = 'VALIDATION_ERROR'
-        throw err
-      }
-      whereClauses.push(`"${field}" = ?`)
-      args.push(value)
+  const filter = buildFilterClause(collection, params.filter)
+  whereClauses.push(...filter.sql)
+  args.push(...filter.args)
+
+  if (params.search) {
+    const textFields = Object.entries(collection.fields)
+      .filter(([, f]) => f.type === 'string' || f.type === 'text')
+      .map(([name]) => name)
+    if (textFields.length > 0) {
+      const like = `%${params.search}%`
+      whereClauses.push(
+        `(${textFields.map((f) => `"${f}" LIKE ?`).join(' OR ')})`,
+      )
+      for (let i = 0; i < textFields.length; i++) args.push(like)
     }
   }
 

@@ -1,8 +1,8 @@
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
-import { getDb } from '../db/client.js'
+import { getDb, getClient } from '../db/client.js'
 import { schema } from '../db/schema.js'
-import env from '../env.js'
+import env, { parseAdminEmails } from '../env.js'
 
 type AuthInstance = ReturnType<typeof betterAuth>
 
@@ -25,6 +25,25 @@ export function getAuth(): AuthInstance {
       emailAndPassword: {
         enabled: true,
       },
+      user: {
+        additionalFields: {
+          role: {
+            type: 'string',
+            defaultValue: 'user',
+            input: false,
+            required: false,
+          },
+        },
+      },
+      databaseHooks: {
+        user: {
+          create: {
+            after: async (user) => {
+              await promoteIfNeeded(user.id, user.email)
+            },
+          },
+        },
+      },
       session: {
         expiresIn: 60 * 60 * 24 * 7,
         updateAge: 60 * 60 * 24,
@@ -39,6 +58,56 @@ export function getAuth(): AuthInstance {
     }) as AuthInstance
   }
   return authInstance
+}
+
+/**
+ * Promote first registered user to admin, or any email listed in ADMIN_EMAILS.
+ */
+async function promoteIfNeeded(userId: string, email: string): Promise<void> {
+  const client = getClient()
+  const adminEmails = parseAdminEmails()
+  const emailLower = email.toLowerCase()
+
+  let shouldPromote = adminEmails.includes(emailLower)
+
+  if (!shouldPromote) {
+    const count = await client.execute(
+      `SELECT COUNT(*) as total FROM "user" WHERE "role" = 'admin'`,
+    )
+    const adminCount = Number(count.rows[0]?.total || 0)
+    if (adminCount === 0) {
+      // First user (or first after wipe) becomes admin
+      const totalUsers = await client.execute(
+        `SELECT COUNT(*) as total FROM "user"`,
+      )
+      // After create, this user already exists — promote if they are the only one
+      // or if there are zero admins and this is the first signup wave
+      if (Number(totalUsers.rows[0]?.total || 0) <= 1) {
+        shouldPromote = true
+      } else if (adminCount === 0) {
+        shouldPromote = true
+      }
+    }
+  }
+
+  if (shouldPromote) {
+    await client.execute({
+      sql: `UPDATE "user" SET "role" = 'admin', "updatedAt" = ? WHERE "id" = ?`,
+      args: [Date.now(), userId],
+    })
+  }
+}
+
+export async function setUserRole(
+  userId: string,
+  role: 'admin' | 'user',
+): Promise<boolean> {
+  const client = getClient()
+  const result = await client.execute({
+    sql: `UPDATE "user" SET "role" = ?, "updatedAt" = ? WHERE "id" = ?`,
+    args: [role, Date.now(), userId],
+  })
+  return (result.rowsAffected || 0) > 0
 }
 
 export function resetAuthForTests(): void {

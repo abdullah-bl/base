@@ -3,9 +3,12 @@ import type { CollectionSchema } from '../schema/types.js'
 import { schemaToZod } from '../schema/to-zod.js'
 import { requireAuth } from '../auth/middleware.js'
 import { create, getById, update, remove } from './crud.js'
-import { list, type ListParams } from './query.js'
+import { list, type ListParams, type FilterValue } from './query.js'
 import { ForbiddenError } from './access.js'
 import { getAccessLevel } from './access.js'
+import { isMaintenanceMode, getMaintenanceReason } from '../server/maintenance.js'
+import { writeAudit } from '../observability/audit.js'
+import { getRequestId } from '../observability/request-log.js'
 
 /**
  * Create a Hono sub-router for a single collection.
@@ -13,6 +16,21 @@ import { getAccessLevel } from './access.js'
 export function createCollectionRouter(collection: CollectionSchema): Hono {
   const router = new Hono()
   const zodSchemas = schemaToZod(collection)
+
+  router.use('*', async (c, next) => {
+    if (isMaintenanceMode() && c.req.method !== 'GET') {
+      return c.json(
+        {
+          error: {
+            code: 'MAINTENANCE',
+            message: getMaintenanceReason(),
+          },
+        },
+        503,
+      )
+    }
+    await next()
+  })
 
   const readIsPublic = getAccessLevel(collection, 'read') === 'public'
   if (!readIsPublic) {
@@ -58,6 +76,7 @@ export function createCollectionRouter(collection: CollectionSchema): Hono {
       sort: c.req.query('sort') || undefined,
       page: pageRaw ? Number(pageRaw) : 1,
       perPage: perPageRaw ? Number(perPageRaw) : 20,
+      search: c.req.query('search') || undefined,
     }
 
     try {
@@ -110,6 +129,14 @@ export function createCollectionRouter(collection: CollectionSchema): Hono {
         validation.data as Record<string, unknown>,
         user,
       )
+      void writeAudit({
+        actor: user?.id ? { kind: 'user', userId: user.id } : null,
+        action: 'create',
+        collection: collection.name,
+        recordId: String(record.id),
+        after: record,
+        requestId: getRequestId(c),
+      })
       return c.json({ data: record }, 201)
     } catch (err) {
       return handleRouteError(c, err)
@@ -136,6 +163,7 @@ export function createCollectionRouter(collection: CollectionSchema): Hono {
     }
 
     try {
+      const before = await getById(collection, id, user ?? null)
       const record = await update(
         collection,
         id,
@@ -148,6 +176,15 @@ export function createCollectionRouter(collection: CollectionSchema): Hono {
           404,
         )
       }
+      void writeAudit({
+        actor: user?.id ? { kind: 'user', userId: user.id } : null,
+        action: 'update',
+        collection: collection.name,
+        recordId: id,
+        before: before,
+        after: record,
+        requestId: getRequestId(c),
+      })
       return c.json({ data: record })
     } catch (err) {
       return handleRouteError(c, err)
@@ -160,6 +197,7 @@ export function createCollectionRouter(collection: CollectionSchema): Hono {
     const hard = c.req.query('hard') === 'true'
 
     try {
+      const before = await getById(collection, id, user ?? null)
       const deleted = await remove(collection, id, !hard, user)
       if (!deleted) {
         return c.json(
@@ -167,6 +205,14 @@ export function createCollectionRouter(collection: CollectionSchema): Hono {
           404,
         )
       }
+      void writeAudit({
+        actor: user?.id ? { kind: 'user', userId: user.id } : null,
+        action: hard ? 'hard_delete' : 'delete',
+        collection: collection.name,
+        recordId: id,
+        before: before,
+        requestId: getRequestId(c),
+      })
       return c.json({ data: { id, deleted: true, soft: !hard } })
     } catch (err) {
       return handleRouteError(c, err)
@@ -180,13 +226,15 @@ export function createCollectionRouter(collection: CollectionSchema): Hono {
  * Parse filter query parameter.
  * Supports:
  *   ?filter={"field":"value"}  (JSON — preferred / documented)
+ *   ?filter={"field":{"op":"gte","value":10}}
  *   ?filter[field]=value       (bracket style)
+ *   ?filter[field__gte]=10     (operator suffix)
  */
 export function parseFilterParam(
   filter?: string,
   allQueries?: Record<string, string[]>,
-): Record<string, string> | undefined {
-  const fromBrackets: Record<string, string> = {}
+): Record<string, FilterValue> | undefined {
+  const fromBrackets: Record<string, FilterValue> = {}
 
   if (allQueries) {
     for (const [key, values] of Object.entries(allQueries)) {
@@ -206,9 +254,9 @@ export function parseFilterParam(
   try {
     const parsed = JSON.parse(filter)
     if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-      const out: Record<string, string> = {}
+      const out: Record<string, FilterValue> = {}
       for (const [k, v] of Object.entries(parsed)) {
-        out[k] = String(v)
+        out[k] = v as FilterValue
       }
       return out
     }

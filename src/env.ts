@@ -1,5 +1,10 @@
 import { z } from 'zod'
 
+const boolFromEnv = z
+  .enum(['true', 'false'])
+  .default('false')
+  .transform((v) => v === 'true')
+
 const envSchema = z
   .object({
     PORT: z.coerce.number().default(3000),
@@ -22,15 +27,52 @@ const envSchema = z
     NODE_ENV: z
       .enum(['development', 'production', 'test'])
       .default('development'),
-    HARD_DELETE_ENABLED: z
-      .enum(['true', 'false'])
-      .default('false')
-      .transform((v) => v === 'true'),
+    HARD_DELETE_ENABLED: boolFromEnv.default('false'),
     REALTIME_ENABLED: z
       .enum(['true', 'false'])
       .default('true')
       .transform((v) => v === 'true'),
     REALTIME_REPLAY_BUFFER: z.coerce.number().default(100),
+
+    // Admin
+    ADMIN_ENABLED: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((v) => v === 'true'),
+    ADMIN_PATH: z.string().default('/_'),
+    ADMIN_TOKEN: z.string().optional(),
+    ADMIN_EMAILS: z.string().default(''),
+
+    // Logging
+    LOG_LEVEL: z
+      .enum(['debug', 'info', 'warn', 'error'])
+      .default('info'),
+    LOG_PERSIST: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((v) => v === 'true'),
+    LOG_BUFFER_SIZE: z.coerce.number().default(500),
+    LOG_RETENTION_DAYS: z.coerce.number().default(14),
+
+    // Backup
+    BACKUP_DIR: z.string().default('./data/backups'),
+    BACKUP_RETENTION: z.coerce.number().default(10),
+    BACKUP_SCHEDULE_HOURS: z.coerce.number().default(0),
+
+    // Rate limiting
+    RATE_LIMIT_ENABLED: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((v) => v === 'true'),
+    RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60_000),
+    RATE_LIMIT_MAX: z.coerce.number().default(120),
+    RATE_LIMIT_AUTH_MAX: z.coerce.number().default(20),
+
+    // Webhooks
+    WEBHOOKS_ENABLED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
   })
   .superRefine((data, ctx) => {
     if (data.STORAGE_DRIVER !== 's3') return
@@ -54,6 +96,17 @@ const envSchema = z
         path: ['S3_SECRET_ACCESS_KEY'],
         message: 'S3_SECRET_ACCESS_KEY is required when STORAGE_DRIVER=s3',
       })
+    }
+  })
+  .superRefine((data, ctx) => {
+    if (data.ADMIN_TOKEN !== undefined && data.ADMIN_TOKEN.length > 0) {
+      if (data.ADMIN_TOKEN.length < 32) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['ADMIN_TOKEN'],
+          message: 'ADMIN_TOKEN must be at least 32 characters when set',
+        })
+      }
     }
   })
 
@@ -103,6 +156,22 @@ export function loadEnv(force = false): Env {
     HARD_DELETE_ENABLED: process.env.HARD_DELETE_ENABLED,
     REALTIME_ENABLED: process.env.REALTIME_ENABLED,
     REALTIME_REPLAY_BUFFER: process.env.REALTIME_REPLAY_BUFFER,
+    ADMIN_ENABLED: process.env.ADMIN_ENABLED,
+    ADMIN_PATH: process.env.ADMIN_PATH,
+    ADMIN_TOKEN: process.env.ADMIN_TOKEN,
+    ADMIN_EMAILS: process.env.ADMIN_EMAILS,
+    LOG_LEVEL: process.env.LOG_LEVEL,
+    LOG_PERSIST: process.env.LOG_PERSIST,
+    LOG_BUFFER_SIZE: process.env.LOG_BUFFER_SIZE,
+    LOG_RETENTION_DAYS: process.env.LOG_RETENTION_DAYS,
+    BACKUP_DIR: process.env.BACKUP_DIR,
+    BACKUP_RETENTION: process.env.BACKUP_RETENTION,
+    BACKUP_SCHEDULE_HOURS: process.env.BACKUP_SCHEDULE_HOURS,
+    RATE_LIMIT_ENABLED: process.env.RATE_LIMIT_ENABLED,
+    RATE_LIMIT_WINDOW_MS: process.env.RATE_LIMIT_WINDOW_MS,
+    RATE_LIMIT_MAX: process.env.RATE_LIMIT_MAX,
+    RATE_LIMIT_AUTH_MAX: process.env.RATE_LIMIT_AUTH_MAX,
+    WEBHOOKS_ENABLED: process.env.WEBHOOKS_ENABLED,
   })
 
   if (!hasSecret && !isProductionLike(parsed.NODE_ENV)) {
@@ -136,3 +205,9 @@ const env: Env = new Proxy({} as Env, {
 })
 
 export default env
+
+export function parseAdminEmails(): string[] {
+  return env.ADMIN_EMAILS.split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+}
