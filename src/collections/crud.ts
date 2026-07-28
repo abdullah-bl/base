@@ -1,105 +1,197 @@
-import { db } from '../db/client.js'
-import { schema } from '../db/schema.js'
-import { sql, eq, and, isNull, desc, asc, like, type SQL } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import type { CollectionSchema } from '../schema/types.js'
 import { config } from '../config.js'
+import { getClient } from '../db/client.js'
 import { ensureCollectionTable } from './table-create.js'
+import {
+  deserializeRow,
+  serializeFieldValue,
+  SerializationError,
+} from './serialize.js'
+import {
+  applyOwnerOnCreate,
+  assertAccess,
+  ownerFilterSql,
+  type AuthUser,
+} from './access.js'
 
-/**
- * Generic CRUD operations for any collection.
- * Tables are created on-demand from the schema definition.
- */
-
-export async function create(collection: CollectionSchema, data: Record<string, any>) {
-  const tableName = collection.name
+export async function create(
+  collection: CollectionSchema,
+  data: Record<string, unknown>,
+  user?: AuthUser | null,
+) {
   await ensureCollectionTable(collection)
 
+  if (user) {
+    assertAccess(collection, 'create', { user })
+    data = applyOwnerOnCreate(collection, data, user)
+  }
+
   const now = Date.now()
-  const record: Record<string, any> = {
+  const record: Record<string, unknown> = {
     id: ulid(),
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
   }
 
-  // Apply user fields + defaults
   for (const [fieldName, field] of Object.entries(collection.fields)) {
     if (fieldName in data) {
-      record[fieldName] = data[fieldName]
+      record[fieldName] = serializeFieldValue(
+        field,
+        data[fieldName],
+        fieldName,
+      )
     } else if (field.default !== undefined) {
-      record[fieldName] = field.default
+      record[fieldName] = serializeFieldValue(
+        field,
+        field.default,
+        fieldName,
+      )
     } else if (field.required) {
-      throw new Error(`Missing required field: ${fieldName}`)
+      const err = new Error(`Missing required field: ${fieldName}`) as Error & {
+        status?: number
+        code?: string
+      }
+      err.status = 400
+      err.code = 'VALIDATION_ERROR'
+      throw err
     }
   }
 
-  // Insert using raw SQL (since tables are dynamic)
-  const columns = Object.keys(record).map(c => `"${c}"`).join(', ')
-  const placeholders = Object.keys(record).map(() => '?').join(', ')
+  const columns = Object.keys(record)
+    .map((c) => `"${c}"`)
+    .join(', ')
+  const placeholders = Object.keys(record)
+    .map(() => '?')
+    .join(', ')
   const values = Object.values(record)
 
-  const client = (db as any).$client
+  const client = getClient()
   await client.execute({
-    sql: `INSERT INTO "${tableName}" (${columns}) VALUES (${placeholders})`,
-    args: values,
+    sql: `INSERT INTO "${collection.name}" (${columns}) VALUES (${placeholders})`,
+    args: values as any[],
   })
 
-  return { id: record.id, ...stripSystemDefaults(record, collection) }
+  return deserializeRow(record as Record<string, unknown>, collection)
 }
 
-export async function getById(collection: CollectionSchema, id: string) {
+export async function getById(
+  collection: CollectionSchema,
+  id: string,
+  user?: AuthUser | null,
+) {
   await ensureCollectionTable(collection)
-  const client = (db as any).$client
+  const client = getClient()
+
+  const where: string[] = ['"id" = ?', '"deletedAt" IS NULL']
+  const args: unknown[] = [id]
+
+  if (user !== undefined) {
+    const owner = ownerFilterSql(collection, 'read', user)
+    if (owner) {
+      where.push(owner.sql)
+      args.push(...owner.args)
+    } else {
+      assertAccess(collection, 'read', { user })
+    }
+  }
 
   const result = await client.execute({
-    sql: `SELECT * FROM "${collection.name}" WHERE "id" = ? AND "deletedAt" IS NULL LIMIT 1`,
-    args: [id],
+    sql: `SELECT * FROM "${collection.name}" WHERE ${where.join(' AND ')} LIMIT 1`,
+    args: args as any[],
   })
 
   if (!result.rows || result.rows.length === 0) {
     return null
   }
 
-  return deserializeRow(result.rows[0], collection)
+  try {
+    const row = deserializeRow(
+      result.rows[0] as Record<string, unknown>,
+      collection,
+    )
+    if (user !== undefined) {
+      assertAccess(collection, 'read', { user }, row)
+    }
+    return row
+  } catch (err) {
+    if (err instanceof SerializationError) {
+      const e = err as SerializationError & { status?: number; code?: string }
+      e.status = 500
+      e.code = 'DATA_ERROR'
+    }
+    throw err
+  }
 }
 
-export async function update(collection: CollectionSchema, id: string, data: Record<string, any>) {
+export async function update(
+  collection: CollectionSchema,
+  id: string,
+  data: Record<string, unknown>,
+  user?: AuthUser | null,
+) {
   await ensureCollectionTable(collection)
-  const client = (db as any).$client
+  const client = getClient()
 
-  // Check existence
-  const existing = await getById(collection, id)
+  const existing = await getByIdInternal(collection, id)
   if (!existing) return null
 
-  // Build SET clause
+  if (user !== undefined) {
+    assertAccess(collection, 'update', { user }, existing)
+    // Prevent spoofing ownership
+    const ownerField = collection.access?.ownerField
+    if (ownerField && ownerField in data) {
+      delete data[ownerField]
+    }
+  }
+
   const setClauses: string[] = ['"updatedAt" = ?']
-  const values: any[] = [Date.now()]
+  const values: unknown[] = [Date.now()]
 
   for (const [fieldName, field] of Object.entries(collection.fields)) {
     if (fieldName in data) {
       setClauses.push(`"${fieldName}" = ?`)
-      values.push(data[fieldName])
+      values.push(serializeFieldValue(field, data[fieldName], fieldName))
     }
   }
 
   values.push(id)
 
-  await client.execute({
-    sql: `UPDATE "${collection.name}" SET ${setClauses.join(', ')} WHERE "id" = ?`,
-    args: values,
+  const result = await client.execute({
+    sql: `UPDATE "${collection.name}" SET ${setClauses.join(', ')} WHERE "id" = ? AND "deletedAt" IS NULL`,
+    args: values as any[],
   })
 
-  return getById(collection, id)
+  if ((result.rowsAffected || 0) === 0) return null
+
+  return getByIdInternal(collection, id)
 }
 
-export async function remove(collection: CollectionSchema, id: string, soft = config.SOFT_DELETE) {
+export async function remove(
+  collection: CollectionSchema,
+  id: string,
+  soft = config.SOFT_DELETE,
+  user?: AuthUser | null,
+) {
   await ensureCollectionTable(collection)
-  const client = (db as any).$client
+  const client = getClient()
 
-  // Check existence
-  const existing = await getById(collection, id)
+  const existing = await getByIdInternal(collection, id)
   if (!existing) return false
+
+  if (user !== undefined) {
+    assertAccess(collection, 'delete', { user }, existing)
+  }
+
+  if (!soft && !config.HARD_DELETE_ENABLED) {
+    const err = new Error(
+      'Hard delete is disabled. Set HARD_DELETE_ENABLED=true to allow permanent deletion.',
+    ) as Error & { status?: number; code?: string }
+    err.status = 403
+    err.code = 'HARD_DELETE_DISABLED'
+    throw err
+  }
 
   if (soft) {
     await client.execute({
@@ -116,45 +208,19 @@ export async function remove(collection: CollectionSchema, id: string, soft = co
   return true
 }
 
-function stripSystemDefaults(record: Record<string, any>, collection: CollectionSchema): Record<string, any> {
-  const result: Record<string, any> = {}
-  for (const key of Object.keys(record)) {
-    if (key !== 'deletedAt') {
-      result[key] = record[key]
-    }
-  }
-  return result
-}
-
-function deserializeRow(row: any, collection: CollectionSchema): Record<string, any> {
-  const result: Record<string, any> = {}
-
-  for (const [key, value] of Object.entries(row)) {
-    const field = collection.fields[key]
-
-    if (field) {
-      // Type-specific deserialization
-      switch (field.type) {
-        case 'boolean':
-          result[key] = value === 1 || value === true
-          break
-        case 'date':
-          result[key] = value ? new Date(value as number) : null
-          break
-        case 'json':
-          result[key] = typeof value === 'string' ? JSON.parse(value) : value
-          break
-        case 'vector':
-          result[key] = typeof value === 'string' ? JSON.parse(value) : value
-          break
-        default:
-          result[key] = value
-      }
-    } else {
-      // System columns
-      result[key] = value
-    }
-  }
-
-  return result
+async function getByIdInternal(
+  collection: CollectionSchema,
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  await ensureCollectionTable(collection)
+  const client = getClient()
+  const result = await client.execute({
+    sql: `SELECT * FROM "${collection.name}" WHERE "id" = ? AND "deletedAt" IS NULL LIMIT 1`,
+    args: [id],
+  })
+  if (!result.rows || result.rows.length === 0) return null
+  return deserializeRow(
+    result.rows[0] as Record<string, unknown>,
+    collection,
+  )
 }

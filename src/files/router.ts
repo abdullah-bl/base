@@ -1,82 +1,167 @@
 import { Hono } from 'hono'
-import { stream } from 'hono/streaming'
 import { requireAuth } from '../auth/middleware.js'
 import env from '../env.js'
-import { createFileRecord, getFileRecord, deleteFileRecord, listFileRecords } from './meta.js'
-import { saveFile, getFile, deleteFile, getFilePath } from './storage.js'
+import {
+  createFileRecord,
+  getFileRecord,
+  deleteFileRecord,
+  listFileRecords,
+} from './meta.js'
+import { saveFile, deleteFile, getFilePath } from './storage.js'
 
 const router = new Hono()
 
-// All file routes require auth
 router.use('*', requireAuth)
 
-// POST / — upload file (multipart)
+/** Sanitize originalName for Content-Disposition */
+export function sanitizeFilename(name: string): string {
+  return name
+    .replace(/[\r\n"\\]/g, '')
+    .replace(/[^\x20-\x7E]/g, '_')
+    .slice(0, 200) || 'download'
+}
+
 router.post('/', async (c) => {
   const user = c.get('user' as never) as any
-  const userId = user?.id
+  const userId = user?.id as string | undefined
+
+  if (!userId) {
+    return c.json(
+      { error: { code: 'UNAUTHORIZED', message: 'Authentication required' } },
+      401,
+    )
+  }
 
   const body = await c.req.parseBody()
   const file = body['file']
 
   if (!file || !(file instanceof File)) {
-    return c.json({ error: { code: 'VALIDATION_ERROR', message: 'No file provided. Use multipart form with "file" field.' } }, 400)
+    return c.json(
+      {
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'No file provided. Use multipart form with "file" field.',
+        },
+      },
+      400,
+    )
   }
 
-  // Check file size
   if (file.size > env.MAX_FILE_SIZE) {
-    return c.json({
-      error: { code: 'FILE_TOO_LARGE', message: `File exceeds max size of ${env.MAX_FILE_SIZE} bytes` }
-    }, 413)
+    return c.json(
+      {
+        error: {
+          code: 'FILE_TOO_LARGE',
+          message: `File exceeds max size of ${env.MAX_FILE_SIZE} bytes`,
+        },
+      },
+      413,
+    )
   }
 
   const arrayBuffer = await file.arrayBuffer()
   const stored = await saveFile(arrayBuffer, file.name, file.type)
 
-  const record = await createFileRecord({
-    filename: stored.filename,
-    originalName: file.name,
-    mimeType: file.type || 'application/octet-stream',
-    size: stored.size,
-    storageKey: stored.storageKey,
-    uploaderId: userId,
-  })
-
-  return c.json({ data: record }, 201)
+  try {
+    const record = await createFileRecord({
+      filename: stored.filename,
+      originalName: sanitizeFilename(file.name),
+      mimeType: file.type || 'application/octet-stream',
+      size: stored.size,
+      storageKey: stored.storageKey,
+      uploaderId: userId,
+    })
+    return c.json({ data: record }, 201)
+  } catch (err) {
+    // Compensating delete if metadata insert fails
+    await deleteFile(stored.storageKey)
+    throw err
+  }
 })
 
-// GET /:id — download/serve file
 router.get('/:id', async (c) => {
   const id = c.req.param('id')
   const record = await getFileRecord(id)
 
   if (!record) {
-    return c.json({ error: { code: 'NOT_FOUND', message: 'File not found' } }, 404)
+    return c.json(
+      { error: { code: 'NOT_FOUND', message: 'File not found' } },
+      404,
+    )
   }
 
-  // Check ownership
   const user = c.get('user' as never) as any
-  if (record.uploaderId && record.uploaderId !== user?.id) {
-    return c.json({ error: { code: 'FORBIDDEN', message: 'Not your file' } }, 403)
+  // Deny when uploaderId is null or does not match
+  if (!record.uploaderId || record.uploaderId !== user?.id) {
+    return c.json(
+      { error: { code: 'FORBIDDEN', message: 'Not your file' } },
+      403,
+    )
   }
 
+  const filepath = getFilePath(record.storageKey)
+  if (!filepath) {
+    return c.json(
+      {
+        error: { code: 'NOT_FOUND', message: 'File data missing from storage' },
+      },
+      404,
+    )
+  }
+
+  const safeName = sanitizeFilename(record.originalName)
+
+  if (typeof Bun !== 'undefined') {
+    const bunFile = Bun.file(filepath)
+    if (!(await bunFile.exists())) {
+      return c.json(
+        {
+          error: {
+            code: 'NOT_FOUND',
+            message: 'File data missing from storage',
+          },
+        },
+        404,
+      )
+    }
+    return new Response(bunFile, {
+      headers: {
+        'Content-Type': record.mimeType,
+        'Content-Length': String(record.size),
+        'Content-Disposition': `inline; filename="${safeName}"`,
+      },
+    })
+  }
+
+  const { getFile } = await import('./storage.js')
   const data = await getFile(record.storageKey)
   if (!data) {
-    return c.json({ error: { code: 'NOT_FOUND', message: 'File data missing from storage' } }, 404)
+    return c.json(
+      {
+        error: { code: 'NOT_FOUND', message: 'File data missing from storage' },
+      },
+      404,
+    )
   }
 
-  return new Response(new Uint8Array(data), {
+  return new Response(data, {
     headers: {
       'Content-Type': record.mimeType,
       'Content-Length': String(record.size),
-      'Content-Disposition': `inline; filename="${record.originalName}"`,
+      'Content-Disposition': `inline; filename="${safeName}"`,
     },
   })
 })
 
-// GET / — list user's files
 router.get('/', async (c) => {
   const user = c.get('user' as never) as any
   const userId = user?.id
+  if (!userId) {
+    return c.json(
+      { error: { code: 'UNAUTHORIZED', message: 'Authentication required' } },
+      401,
+    )
+  }
   const page = Number(c.req.query('page') || 1)
   const perPage = Math.min(100, Number(c.req.query('perPage') || 20))
 
@@ -84,28 +169,32 @@ router.get('/', async (c) => {
 
   return c.json({
     data,
-    meta: { page, perPage, total, totalPages: Math.ceil(total / perPage) },
+    meta: { page, perPage, total, totalPages: Math.ceil(total / perPage) || 0 },
   })
 })
 
-// DELETE /:id — delete file
 router.delete('/:id', async (c) => {
   const id = c.req.param('id')
   const record = await getFileRecord(id)
 
   if (!record) {
-    return c.json({ error: { code: 'NOT_FOUND', message: 'File not found' } }, 404)
+    return c.json(
+      { error: { code: 'NOT_FOUND', message: 'File not found' } },
+      404,
+    )
   }
 
-  // Check ownership
   const user = c.get('user' as never) as any
-  if (record.uploaderId && record.uploaderId !== user?.id) {
-    return c.json({ error: { code: 'FORBIDDEN', message: 'Not your file' } }, 403)
+  if (!record.uploaderId || record.uploaderId !== user?.id) {
+    return c.json(
+      { error: { code: 'FORBIDDEN', message: 'Not your file' } },
+      403,
+    )
   }
 
-  // Delete from storage + metadata
-  await deleteFile(record.storageKey)
+  // Delete metadata first, then storage (compensating restore not needed for files)
   await deleteFileRecord(id)
+  await deleteFile(record.storageKey)
 
   return c.json({ data: { id, deleted: true } })
 })

@@ -1,56 +1,85 @@
 import type { CollectionSchema } from './types.js'
 
 /**
- * Internal registry storage for collections
+ * Single source of truth for registered collections.
+ * defineCollection() writes here; the server mounts routes from here.
  */
 const collectionRegistry = new Map<string, CollectionSchema>()
 
 /**
- * Register a collection in the registry
- * @param collection - Collection schema to register
+ * Register a collection in the registry.
  * @throws Error if collection name already exists
  */
 export function registerCollection(collection: CollectionSchema): void {
   const name = collection.name
 
-  // Check for duplicate collection names
   if (collectionRegistry.has(name)) {
     throw new Error(`Collection "${name}" is already defined`)
+  }
+
+  if (collection.access) {
+    const levels = [
+      collection.access.create,
+      collection.access.read,
+      collection.access.update,
+      collection.access.delete,
+    ]
+    if (levels.some((l) => l === 'owner') && !collection.access.ownerField) {
+      throw new Error(
+        `Collection "${name}" uses owner access but access.ownerField is missing`,
+      )
+    }
+    if (
+      collection.access.ownerField &&
+      !collection.fields[collection.access.ownerField] &&
+      collection.access.ownerField !== 'id'
+    ) {
+      throw new Error(
+        `Collection "${name}" access.ownerField "${collection.access.ownerField}" does not exist`,
+      )
+    }
   }
 
   collectionRegistry.set(name, collection)
 }
 
-/**
- * Get a collection by name
- * @param name - Collection name
- * @returns CollectionSchema or undefined if not found
- */
+/** Alias used by collections.ts / public API */
+export function register(collection: CollectionSchema): void {
+  // Idempotent for the public register() path when defineCollection already registered
+  if (collectionRegistry.has(collection.name)) {
+    const existing = collectionRegistry.get(collection.name)!
+    if (existing !== collection) {
+      // Same name already registered (typically by defineCollection) — update in place
+      collectionRegistry.set(collection.name, collection)
+    }
+    return
+  }
+  registerCollection(collection)
+}
+
 export function getCollection(name: string): CollectionSchema | undefined {
   return collectionRegistry.get(name)
 }
 
-/**
- * Get all registered collections
- * @returns Array of all CollectionSchema objects
- */
 export function getAllCollections(): CollectionSchema[] {
   return Array.from(collectionRegistry.values())
 }
 
+/** Alias for server route mounting */
+export function getRegisteredCollections(): CollectionSchema[] {
+  return getAllCollections()
+}
+
 /**
- * Validate the entire registry
- * Checks for:
- * - No duplicate collection names (already handled in registerCollection)
- * - All reference fields point to existing collections or 'users'
- * - All index fields exist in the collection's field definitions
- * - Index names are unique within a collection
- * @throws Error if validation fails
+ * Validate the entire registry:
+ * - reference integrity
+ * - index field existence
+ * - index name uniqueness
+ * - access rule consistency
  */
 export function validateRegistry(): void {
   const collections = getAllCollections()
 
-  // Check that all reference fields point to existing collections
   for (const collection of collections) {
     for (const [fieldName, field] of Object.entries(collection.fields)) {
       if (field.type === 'reference') {
@@ -60,8 +89,12 @@ export function validateRegistry(): void {
             `Reference field "${collection.name}.${fieldName}" missing target collection`,
           )
         }
-        // Allow references to 'users' (auto-created by Better Auth) or registered collections
-        if (target !== 'users' && !collectionRegistry.has(target)) {
+        // Better Auth table is "user" (singular); also allow registered collections
+        if (
+          target !== 'user' &&
+          target !== 'users' &&
+          !collectionRegistry.has(target)
+        ) {
           throw new Error(
             `Reference field "${collection.name}.${fieldName}" points to non-existent collection "${target}"`,
           )
@@ -70,12 +103,10 @@ export function validateRegistry(): void {
     }
   }
 
-  // Check that all index fields exist in their collection
   for (const collection of collections) {
     const indexNames = new Set<string>()
 
     for (const index of collection.indexes) {
-      // Check index name uniqueness within collection
       if (index.name) {
         if (indexNames.has(index.name)) {
           throw new Error(
@@ -85,11 +116,10 @@ export function validateRegistry(): void {
         indexNames.add(index.name)
       }
 
-      // Check that all indexed fields exist
       for (const fieldName of index.fields) {
         if (
           !collection.fields[fieldName] &&
-          fieldName !== 'id' && // Allow indexing system columns
+          fieldName !== 'id' &&
           fieldName !== 'createdAt' &&
           fieldName !== 'updatedAt' &&
           fieldName !== 'deletedAt'
@@ -103,29 +133,25 @@ export function validateRegistry(): void {
   }
 }
 
-/**
- * Clear all collections from the registry
- * Useful for testing
- */
 export function clearRegistry(): void {
   collectionRegistry.clear()
 }
 
 /**
- * Auto-register the 'users' collection if not defined
- * This is created by Better Auth, so we need it in our registry
+ * Auto-register the Better Auth user table as a reference target.
+ * Better Auth uses the table name "user" (singular).
  */
 export function ensureUsersCollection(): void {
-  if (!collectionRegistry.has('users')) {
+  if (!collectionRegistry.has('user') && !collectionRegistry.has('users')) {
     const usersCollection: CollectionSchema = {
-      name: 'users',
+      name: 'user',
       fields: {
-        email: { type: 'string', required: false, optional: true, unique: false },
+        email: { type: 'string', required: false, optional: true, unique: true },
         name: { type: 'string', required: false, optional: true, unique: false },
         image: { type: 'string', required: false, optional: true, unique: false },
       },
       indexes: [{ fields: ['email'], unique: true }],
     }
-    collectionRegistry.set('users', usersCollection)
+    collectionRegistry.set('user', usersCollection)
   }
 }

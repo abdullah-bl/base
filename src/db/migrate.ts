@@ -1,19 +1,17 @@
-import { createClient } from '@libsql/client'
-import env from '../env.js'
+import { getClient } from './client.js'
 
 /**
  * Auto-migrate: create Better Auth tables if they don't exist.
- * Simple raw SQL approach — no drizzle-kit needed for initial setup.
  *
- * For production migrations with schema changes, use `drizzle-kit generate` + `drizzle-kit migrate`.
+ * Single source of truth for auth table DDL at boot.
+ * Drizzle schema in schema.ts mirrors these definitions for the Better Auth adapter.
+ * Prefer this boot path over drizzle-kit for auth tables; use schema evolution
+ * (src/schema/evolve.ts) for user collections.
  */
 export async function autoMigrate(): Promise<void> {
   console.log('🔄 Running auto-migration...')
 
-  const client = createClient({
-    url: env.DATABASE_URL,
-    authToken: env.DATABASE_AUTH_TOKEN,
-  })
+  const client = getClient()
 
   const statements = [
     `CREATE TABLE IF NOT EXISTS "user" (
@@ -57,6 +55,20 @@ export async function autoMigrate(): Promise<void> {
       "expiresAt" INTEGER NOT NULL,
       "createdAt" INTEGER,
       "updatedAt" INTEGER
+    )`,
+    // Internal schema metadata for collection evolution
+    `CREATE TABLE IF NOT EXISTS "_base_schema" (
+      "collection" TEXT PRIMARY KEY NOT NULL,
+      "fingerprint" TEXT NOT NULL,
+      "schemaJson" TEXT NOT NULL,
+      "updatedAt" INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS "_base_migrations" (
+      "id" TEXT PRIMARY KEY NOT NULL,
+      "collection" TEXT NOT NULL,
+      "operation" TEXT NOT NULL,
+      "detail" TEXT NOT NULL,
+      "appliedAt" INTEGER NOT NULL
     )`,
   ]
 

@@ -1,20 +1,12 @@
-import type { CollectionSchema } from './types.js'
-
 /**
- * Collections are registered here by the user's collections.ts file.
- * The server reads this list on startup to mount CRUD routes.
+ * Backward-compatible re-exports.
+ * The single registry lives in registry.ts — do not maintain a second list.
  */
-
-export const registeredCollections: CollectionSchema[] = []
-
-export function register(collection: CollectionSchema): void {
-  // Avoid duplicates
-  const exists = registeredCollections.some(c => c.name === collection.name)
-  if (!exists) {
-    registeredCollections.push(collection)
-  }
-}
-
-export function getRegisteredCollections(): CollectionSchema[] {
-  return registeredCollections
-}
+export {
+  register,
+  getRegisteredCollections,
+  getAllCollections,
+  clearRegistry,
+  validateRegistry,
+  ensureUsersCollection,
+} from './registry.js'

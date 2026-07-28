@@ -1,11 +1,11 @@
 import type { Context, Next } from 'hono'
-import { auth } from './auth.js'
+import { getAuth } from './auth.js'
 
 /**
  * Require authentication — returns 401 if no session
  */
 export async function requireAuth(c: Context, next: Next) {
-  const session = await auth.api.getSession({
+  const session = await getAuth().api.getSession({
     headers: c.req.raw.headers,
   })
 
@@ -25,7 +25,7 @@ export async function requireAuth(c: Context, next: Next) {
  * Optional authentication — attaches session if present, doesn't block
  */
 export async function optionalAuth(c: Context, next: Next) {
-  const session = await auth.api.getSession({
+  const session = await getAuth().api.getSession({
     headers: c.req.raw.headers,
   })
 

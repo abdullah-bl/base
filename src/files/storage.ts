@@ -1,10 +1,9 @@
-import fs from 'node:fs'
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import { ulid } from 'ulid'
-import { uploadsDir } from '../config.js'
+import { getUploadsDir, ensureDirectories } from '../config.js'
 
 export interface StoredFile {
-  buffer: Buffer
   filename: string
   storageKey: string
   mimeType: string
@@ -12,64 +11,100 @@ export interface StoredFile {
 }
 
 /**
- * Save a file to local disk storage.
- * Returns the storage key (relative path) for retrieval.
+ * Save a file to local disk storage using async I/O.
+ * Accepts ArrayBuffer or Uint8Array — streams via Bun.write when available.
  */
 export async function saveFile(
-  data: ArrayBuffer,
+  data: ArrayBuffer | Uint8Array,
   originalName: string,
   mimeType: string,
 ): Promise<StoredFile> {
+  ensureDirectories()
+  const uploadsDir = getUploadsDir()
   const ext = path.extname(originalName) || mimeToExt(mimeType)
   const filename = `${ulid()}${ext}`
   const storageKey = filename
   const filepath = path.resolve(uploadsDir, filename)
 
-  // Ensure uploads dir exists
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true })
+  // Prevent path traversal — storage key is always a ULID basename
+  if (path.basename(filepath) !== filename || !filepath.startsWith(path.resolve(uploadsDir))) {
+    throw new Error('Invalid storage path')
   }
 
-  const buffer = Buffer.from(data)
-  fs.writeFileSync(filepath, buffer)
+  await fs.mkdir(uploadsDir, { recursive: true })
+
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
+
+  if (typeof Bun !== 'undefined' && Bun.write) {
+    await Bun.write(filepath, bytes)
+  } else {
+    await fs.writeFile(filepath, bytes)
+  }
 
   return {
-    buffer,
     filename,
     storageKey,
     mimeType,
-    size: buffer.length,
+    size: bytes.byteLength,
   }
 }
 
 /**
- * Read a file from local disk.
+ * Read a file from local disk (full buffer — prefer getFileResponse for serving).
  */
-export async function getFile(storageKey: string): Promise<Buffer | null> {
-  const filepath = path.resolve(uploadsDir, storageKey)
+export async function getFile(storageKey: string): Promise<Uint8Array | null> {
+  const filepath = resolveSafePath(storageKey)
+  if (!filepath) return null
 
-  if (!fs.existsSync(filepath)) return null
+  try {
+    await fs.access(filepath)
+  } catch {
+    return null
+  }
 
-  return fs.readFileSync(filepath)
+  const buf = await fs.readFile(filepath)
+  return new Uint8Array(buf)
+}
+
+/**
+ * Return a Bun.File / Response-friendly path for streaming downloads.
+ */
+export function getFilePath(storageKey: string): string | null {
+  return resolveSafePath(storageKey)
 }
 
 /**
  * Delete a file from local disk.
  */
 export async function deleteFile(storageKey: string): Promise<boolean> {
-  const filepath = path.resolve(uploadsDir, storageKey)
+  const filepath = resolveSafePath(storageKey)
+  if (!filepath) return false
 
-  if (!fs.existsSync(filepath)) return false
-
-  fs.unlinkSync(filepath)
-  return true
+  try {
+    await fs.unlink(filepath)
+    return true
+  } catch {
+    return false
+  }
 }
 
-/**
- * Get the full path for a storage key.
- */
-export function getFilePath(storageKey: string): string {
-  return path.resolve(uploadsDir, storageKey)
+function resolveSafePath(storageKey: string): string | null {
+  // Reject path separators / traversal
+  if (
+    !storageKey ||
+    storageKey.includes('..') ||
+    storageKey.includes('/') ||
+    storageKey.includes('\\')
+  ) {
+    return null
+  }
+  const uploadsDir = getUploadsDir()
+  const filepath = path.resolve(uploadsDir, storageKey)
+  const root = path.resolve(uploadsDir)
+  if (!filepath.startsWith(root + path.sep) && filepath !== root) {
+    return null
+  }
+  return filepath
 }
 
 function mimeToExt(mimeType: string): string {

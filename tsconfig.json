@@ -18,6 +18,6 @@
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["src/**/*", "collections.ts"],
+  "include": ["src/**/*", "collections.ts", "tests/**/*", "scripts/**/*"],
   "exclude": ["node_modules", "dist", "drizzle", "data"]
 }

@@ -1,16 +1,11 @@
-import { createClient } from '@libsql/client'
 import { ulid } from 'ulid'
-import env from '../env.js'
-
-const client = createClient({
-  url: env.DATABASE_URL,
-  authToken: env.DATABASE_AUTH_TOKEN,
-})
+import { getClient } from '../db/client.js'
 
 let tableEnsured = false
 
 async function ensureTable() {
   if (tableEnsured) return
+  const client = getClient()
   await client.execute(`CREATE TABLE IF NOT EXISTS "files" (
     "id" TEXT PRIMARY KEY NOT NULL,
     "filename" TEXT NOT NULL,
@@ -23,6 +18,10 @@ async function ensureTable() {
     "updatedAt" INTEGER NOT NULL DEFAULT 0
   )`)
   tableEnsured = true
+}
+
+export function resetFilesTableCache(): void {
+  tableEnsured = false
 }
 
 export interface FileRecord {
@@ -43,22 +42,40 @@ export async function createFileRecord(data: {
   mimeType: string
   size: number
   storageKey: string
-  uploaderId?: string
+  uploaderId: string
 }): Promise<FileRecord> {
   await ensureTable()
+  const client = getClient()
   const now = Date.now()
   const id = ulid()
 
   await client.execute({
     sql: `INSERT INTO "files" ("id", "filename", "originalName", "mimeType", "size", "storageKey", "uploaderId", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    args: [id, data.filename, data.originalName, data.mimeType, data.size, data.storageKey, data.uploaderId || null, now, now],
+    args: [
+      id,
+      data.filename,
+      data.originalName,
+      data.mimeType,
+      data.size,
+      data.storageKey,
+      data.uploaderId,
+      now,
+      now,
+    ],
   })
 
-  return { id, ...data, uploaderId: data.uploaderId || null, createdAt: now, updatedAt: now }
+  return {
+    id,
+    ...data,
+    uploaderId: data.uploaderId,
+    createdAt: now,
+    updatedAt: now,
+  }
 }
 
 export async function getFileRecord(id: string): Promise<FileRecord | null> {
   await ensureTable()
+  const client = getClient()
   const result = await client.execute({
     sql: `SELECT * FROM "files" WHERE "id" = ? LIMIT 1`,
     args: [id],
@@ -70,6 +87,7 @@ export async function getFileRecord(id: string): Promise<FileRecord | null> {
 
 export async function deleteFileRecord(id: string): Promise<boolean> {
   await ensureTable()
+  const client = getClient()
   const result = await client.execute({
     sql: `DELETE FROM "files" WHERE "id" = ?`,
     args: [id],
@@ -77,8 +95,13 @@ export async function deleteFileRecord(id: string): Promise<boolean> {
   return (result.rowsAffected || 0) > 0
 }
 
-export async function listFileRecords(uploaderId: string, page = 1, perPage = 20): Promise<{ data: FileRecord[]; total: number }> {
+export async function listFileRecords(
+  uploaderId: string,
+  page = 1,
+  perPage = 20,
+): Promise<{ data: FileRecord[]; total: number }> {
   await ensureTable()
+  const client = getClient()
   const offset = (page - 1) * perPage
 
   const countResult = await client.execute({
@@ -92,5 +115,8 @@ export async function listFileRecords(uploaderId: string, page = 1, perPage = 20
     args: [uploaderId, perPage, offset],
   })
 
-  return { data: (result.rows || []) as unknown as FileRecord[], total }
+  return {
+    data: (result.rows || []) as unknown as FileRecord[],
+    total,
+  }
 }

@@ -1,13 +1,16 @@
-import { cors } from 'hono/cors';
-import env from '../env.js';
+import { cors } from 'hono/cors'
+import env from '../env.js'
 
-// Parse CORS origins from environment
-function parseCorsOrigins(): string[] | string {
-  const origins = env.CORS_ORIGINS.trim();
+function parseCorsOrigins(): string | string[] | ((origin: string) => string | undefined | null) {
+  const origins = env.CORS_ORIGINS.trim()
   if (origins === '*') {
-    return '*';
+    if (env.NODE_ENV === 'production') {
+      throw new Error('CORS_ORIGINS=* is forbidden in production')
+    }
+    // Reflect request origin so credentials work in development
+    return (origin: string) => origin || undefined
   }
-  return origins.split(',').map(o => o.trim()).filter(Boolean);
+  return origins.split(',').map((o) => o.trim()).filter(Boolean)
 }
 
 export const corsMiddleware = cors({
@@ -15,5 +18,5 @@ export const corsMiddleware = cors({
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
-  maxAge: 86400, // 24 hours
-});
+  maxAge: 86400,
+})

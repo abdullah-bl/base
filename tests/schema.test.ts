@@ -130,7 +130,17 @@ describe('Schema Engine', () => {
       expect(() => validateRegistry()).not.toThrow()
     })
 
-    test('validates references to built-in users collection', () => {
+    test('validates references to built-in user collection', () => {
+      defineCollection('posts', {
+        fields: {
+          authorId: f.reference('user').required(),
+        },
+      })
+
+      expect(() => validateRegistry()).not.toThrow()
+    })
+
+    test('validates references to users alias', () => {
       defineCollection('posts', {
         fields: {
           authorId: f.reference('users').required(),
@@ -185,9 +195,6 @@ describe('Schema Engine', () => {
       const { create } = schemaToZod(collection)
 
       const validData = {
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        deletedAt: null,
         title: 'Hello World',
         viewCount: 0,
         published: false,
@@ -208,9 +215,6 @@ describe('Schema Engine', () => {
       const { create } = schemaToZod(collection)
 
       const invalidData = {
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        deletedAt: null,
         title: 123, // wrong type
         viewCount: 'not a number', // wrong type
       }
@@ -230,9 +234,6 @@ describe('Schema Engine', () => {
       const { create } = schemaToZod(collection)
 
       const invalidData = {
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        deletedAt: null,
         content: 'Some content',
         // missing required title
       }
@@ -252,9 +253,6 @@ describe('Schema Engine', () => {
       const { create } = schemaToZod(collection)
 
       const validData = {
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        deletedAt: null,
         title: 'Hello',
         content: null,
       }
@@ -307,9 +305,6 @@ describe('Schema Engine', () => {
       const { create } = schemaToZod(collection)
 
       const tooLong = {
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        deletedAt: null,
         title: 'This is way too long',
       }
 
@@ -333,8 +328,9 @@ describe('Schema Engine', () => {
       expect(tables).toHaveProperty('posts')
       const postsTable = tables.posts
 
-      // Table should be a function (Drizzle table definition)
-      expect(typeof postsTable).toBe('function')
+      // Drizzle sqliteTable returns a table object
+      expect(postsTable).toBeDefined()
+      expect(typeof postsTable).toBe('object')
     })
 
     test('converts all field types correctly', () => {

@@ -1,28 +1,54 @@
-import type { ErrorHandler } from 'hono';
-import { ZodError } from 'zod';
+import type { ErrorHandler } from 'hono'
+import { ZodError } from 'zod'
+import env from '../env.js'
 
 export const errorHandler: ErrorHandler = (err, c) => {
-  console.error('❌ Error:', err);
+  console.error('❌ Error:', err)
 
-  // Handle Zod validation errors
   if (err instanceof ZodError) {
-    return c.json({
-      error: {
-        code: 'VALIDATION_ERROR',
-        message: 'Invalid request data',
-        details: err.issues,
+    return c.json(
+      {
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid request data',
+          details: err.issues,
+        },
       },
-    }, 400);
+      400,
+    )
   }
 
-  // Handle generic errors
-  const statusCode = (err as any).status || (err as any).statusCode || 500;
-  const message = err instanceof Error ? err.message : 'Internal server error';
+  const e = err as Error & { status?: number; statusCode?: number; code?: string }
+  const statusCode = e.status || e.statusCode || 500
 
-  return c.json({
-    error: {
-      code: 'INTERNAL_ERROR',
-      message,
+  // Domain errors with explicit codes may expose their message
+  if (e.code && statusCode < 500) {
+    return c.json(
+      {
+        error: {
+          code: e.code,
+          message: e.message,
+        },
+      },
+      statusCode as any,
+    )
+  }
+
+  // Never leak internal exception messages for 500s
+  const message =
+    env.NODE_ENV === 'development' && statusCode >= 500
+      ? e.message || 'Internal server error'
+      : statusCode >= 500
+        ? 'Internal server error'
+        : e.message || 'Request failed'
+
+  return c.json(
+    {
+      error: {
+        code: statusCode >= 500 ? 'INTERNAL_ERROR' : e.code || 'REQUEST_ERROR',
+        message,
+      },
     },
-  }, statusCode);
-};
+    statusCode as any,
+  )
+}

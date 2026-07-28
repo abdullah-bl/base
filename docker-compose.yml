@@ -11,14 +11,18 @@ services:
       - ./collections.ts:/app/collections.ts
     environment:
       - PORT=3000
+      - NODE_ENV=development
       - DATABASE_URL=file:./data/app.db
-      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-dev-secret-change-me}
+      # Required — no weak default. Copy from .env or export before compose up.
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET}
       - BETTER_AUTH_URL=http://localhost:3000
-      - CORS_ORIGINS=*
+      - CORS_ORIGINS=http://localhost:3000
       - STORAGE_PATH=./data/uploads
       - MAX_FILE_SIZE=52428800
+      - HARD_DELETE_ENABLED=false
 
-  # MinIO — S3-compatible storage for testing file uploads + Litestream replicas
+  # MinIO — S3-compatible storage for testing Litestream replicas (dev only)
+  # Defaults are intentionally well-known — override for anything beyond local use.
   minio:
     image: minio/minio:latest
     ports:
@@ -27,8 +31,8 @@ services:
     volumes:
       - minio-data:/data
     environment:
-      - MINIO_ROOT_USER=minioadmin
-      - MINIO_ROOT_PASSWORD=minioadmin
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
     command: server /data --console-address ":9001"
     profiles:
       - storage

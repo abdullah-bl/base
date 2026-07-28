@@ -5,13 +5,25 @@
 
 // Schema definition
 export { defineCollection, f } from './schema/define.js'
-export type { CollectionSchema, FieldSchema, FieldType, IndexSchema } from './schema/types.js'
+export type {
+  CollectionSchema,
+  FieldSchema,
+  FieldType,
+  IndexSchema,
+  CollectionAccess,
+  AccessLevel,
+} from './schema/types.js'
 
-// Registry (for advanced use)
-export { register, getRegisteredCollections } from './schema/index-registry.js'
+// Registry
+export {
+  register,
+  getRegisteredCollections,
+  validateRegistry,
+  clearRegistry,
+} from './schema/registry.js'
 
 // Auth middleware (for custom routes)
 export { requireAuth, optionalAuth } from './auth/middleware.js'
 
-// Types
-export type { default as HonoApp } from './server/hono-app.js'
+// App factory
+export { createApp } from './server/hono-app.js'

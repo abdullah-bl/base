@@ -20,11 +20,11 @@ RUN mkdir -p data/uploads
 # Expose port
 EXPOSE 3000
 
-# Environment defaults
+# Environment defaults (BETTER_AUTH_SECRET and CORS_ORIGINS must be provided at runtime in production)
 ENV PORT=3000
 ENV DATABASE_URL=file:./data/app.db
-ENV CORS_ORIGINS=*
 ENV NODE_ENV=production
+ENV HARD_DELETE_ENABLED=false
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
