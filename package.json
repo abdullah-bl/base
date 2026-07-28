@@ -2,10 +2,15 @@
   "name": "@base/core",
   "version": "0.1.0",
   "type": "module",
+  "exports": {
+    ".": "./src/index-public.ts",
+    "./schema": "./src/schema/define.js"
+  },
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "test": "bun test",
+    "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },
