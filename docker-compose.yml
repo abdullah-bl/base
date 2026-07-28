@@ -1,5 +1,5 @@
 # Base BaaS — Docker Compose for local development
-# Includes: Base app + MinIO (S3-compatible for file storage testing)
+# Includes: Base app + MinIO (S3-compatible for file storage / Litestream testing)
 
 services:
   base:
@@ -17,12 +17,25 @@ services:
       - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET}
       - BETTER_AUTH_URL=http://localhost:3000
       - CORS_ORIGINS=http://localhost:3000
+      - STORAGE_DRIVER=${STORAGE_DRIVER:-local}
       - STORAGE_PATH=./data/uploads
       - MAX_FILE_SIZE=52428800
       - HARD_DELETE_ENABLED=false
+      - REALTIME_ENABLED=true
+      # Uncomment to point uploads at the MinIO service (profile: storage):
+      # - STORAGE_DRIVER=s3
+      # - S3_BUCKET=base-uploads
+      # - S3_ENDPOINT=http://minio:9000
+      # - S3_REGION=us-east-1
+      # - S3_ACCESS_KEY_ID=${MINIO_ROOT_USER:-minioadmin}
+      # - S3_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      # - FILES_DOWNLOAD_MODE=proxy
 
-  # MinIO — S3-compatible storage for testing Litestream replicas (dev only)
+  # MinIO — S3-compatible storage for file uploads and Litestream replicas (dev only)
   # Defaults are intentionally well-known — override for anything beyond local use.
+  # Start with: docker compose --profile storage up
+  # Then create a bucket (e.g. base-uploads) in the console at http://localhost:9001
+  # Opt-in S3 driver tests: S3_TEST_BUCKET=base-uploads S3_ENDPOINT=http://localhost:9000 bun test tests/storage.test.ts
   minio:
     image: minio/minio:latest
     ports:

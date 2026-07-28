@@ -30,18 +30,26 @@ async function main() {
   const server = Bun.serve({
     fetch: app.fetch,
     port: PORT,
+    // Bun default idleTimeout is 10s — too short for SSE heartbeats (15s).
+    // 255 is Bun's maximum idleTimeout value.
+    idleTimeout: 255,
   })
 
   console.log('🚀 Base BaaS Server started')
   console.log(`   Port: ${server.port}`)
   console.log(`   Database: ${env.DATABASE_URL}`)
+  console.log(`   Storage: ${env.STORAGE_DRIVER}`)
   console.log(`   Version: 0.1.0`)
   console.log('')
   console.log(`Health check: http://localhost:${PORT}/api/health`)
   console.log(`Auth: http://localhost:${PORT}/api/auth/sign-up/email`)
+  console.log(`Realtime: http://localhost:${PORT}/api/realtime`)
 
   const shutdown = (signal: string) => {
     console.log(`\n📴 Received ${signal}, shutting down gracefully...`)
+    void import('./realtime/bus.js').then(({ closeAllForShutdown }) => {
+      closeAllForShutdown()
+    })
     server.stop()
     console.log('✅ Server closed successfully')
     process.exit(0)

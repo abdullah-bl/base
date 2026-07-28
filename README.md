@@ -11,10 +11,11 @@ bun run src/index.ts  # running on :3000
 - **Schema-to-API** — Define collections in TypeScript, get REST CRUD + validation automatically
 - **Auth** — Email/password, sessions, OAuth-ready (Better Auth)
 - **Access rules** — Compact owner / authenticated / public policies per collection
-- **Files** — Upload, download, delete with ownership tracking
+- **Realtime** — SSE collection-change subscriptions, filtered by access rules
+- **Files** — Upload, download, delete with ownership tracking (local disk or S3)
 - **SQLite** — libSQL/SQLite embedded, zero-config (Turso-ready)
 - **Schema evolution** — Additive column/index migrations with dry-run CLI
-- **Typed client** — Generate a TypeScript client from your collections
+- **Typed client** — Generate a TypeScript client from your collections (incl. `.subscribe()`)
 - **Replication** — Litestream sidecar for disaster recovery (optional)
 - **Lightweight** — Single Bun process
 
@@ -99,6 +100,24 @@ const posts = defineCollection('posts', {
 | GET | `/api/files` | List user's files |
 | DELETE | `/api/files/:id` | Delete (owner only) |
 
+### Realtime (SSE)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/realtime?collections=posts,comments` | SSE stream of create/update/delete events |
+
+Events are filtered by each collection's **read** access policy (same rules as `GET`). Anonymous clients may only subscribe to `read: 'public'` collections. Heartbeats every 15s; reconnect with `Last-Event-ID` to replay from the in-process ring buffer.
+
+```typescript
+const sub = client.posts.subscribe((event) => {
+  console.log(event.action, event.record)
+})
+// later:
+sub.close()
+```
+
+Or multiplex: `client.subscribeMany(['posts', 'comments'], handler)`.
+
 ### Health
 
 | Method | Endpoint | Description |
@@ -147,7 +166,33 @@ import { BaseClient } from '@base/core/client'
 const client = new BaseClient({ baseUrl: 'http://localhost:3000' })
 await client.signIn({ email: 'a@b.com', password: 'password123' })
 const { data, meta } = await client.posts.list({ sort: '-createdAt' })
+
+const sub = client.posts.subscribe((event) => {
+  // event.action: 'create' | 'update' | 'delete'
+  console.log(event.record)
+})
 ```
+
+`subscribe` uses `fetch` + `ReadableStream` (not `EventSource`) so Cookie / Authorization headers work.
+
+## Storage Drivers
+
+| Driver | When | Config |
+|--------|------|--------|
+| `local` (default) | Single-node / local disk | `STORAGE_PATH` |
+| `s3` | Ephemeral disks, multi-instance, object storage | `S3_BUCKET` + credentials |
+
+```bash
+# Local MinIO (docker compose --profile storage up)
+STORAGE_DRIVER=s3
+S3_BUCKET=base-uploads
+S3_ENDPOINT=http://localhost:9000
+S3_ACCESS_KEY_ID=minioadmin
+S3_SECRET_ACCESS_KEY=minioadmin
+# FILES_DOWNLOAD_MODE=redirect   # optional: 302 to presigned URL (recommended in production)
+```
+
+`storageKey` in the DB stays a flat ULID; `S3_PREFIX` is applied only inside the driver.
 
 ## Schema Evolution
 
@@ -171,12 +216,19 @@ Environment variables (see `.env.example`):
 | `BETTER_AUTH_SECRET` | *(dev auto-generated)* | **Required in production** |
 | `BETTER_AUTH_URL` | `http://localhost:3000` | Base URL for auth |
 | `CORS_ORIGINS` | `*` | Explicit list required in production |
-| `STORAGE_PATH` | `./data/uploads` | File upload directory |
+| `STORAGE_DRIVER` | `local` | `local` or `s3` |
+| `STORAGE_PATH` | `./data/uploads` | Local upload directory (local driver) |
 | `MAX_FILE_SIZE` | `52428800` (50MB) | Max upload size |
+| `S3_BUCKET` | — | Required when `STORAGE_DRIVER=s3` |
+| `S3_REGION` / `S3_ENDPOINT` | — | Region and/or custom endpoint (MinIO, R2, …) |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | — | Required when `STORAGE_DRIVER=s3` |
+| `S3_PREFIX` | — | Key prefix applied inside the S3 driver |
+| `FILES_DOWNLOAD_MODE` | `proxy` | `proxy` (stream via Base) or `redirect` (presigned URL) |
+| `S3_PRESIGN_EXPIRES` | `300` | Presigned URL TTL (seconds) |
 | `HARD_DELETE_ENABLED` | `false` | Allow `?hard=true` deletes |
-| `LITESTREAM_BUCKET` | — | S3 bucket for Litestream |
-| `S3_ENDPOINT` / `S3_REGION` | — | S3-compatible endpoint |
-| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | — | S3 credentials |
+| `REALTIME_ENABLED` | `true` | SSE subscriptions |
+| `REALTIME_REPLAY_BUFFER` | `100` | Ring buffer size for `Last-Event-ID` replay |
+| `LITESTREAM_BUCKET` | — | Separate bucket for Litestream (may share `S3_*` credentials) |
 
 ## Deployment
 

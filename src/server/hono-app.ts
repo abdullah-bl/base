@@ -11,6 +11,7 @@ import {
 } from '../schema/registry.js'
 import { warnMissingAccessPolicies } from '../collections/access.js'
 import filesRouter from '../files/router.js'
+import { createRealtimeRouter } from '../realtime/router.js'
 
 export function createApp(): Hono {
   ensureUsersCollection()
@@ -58,6 +59,7 @@ export function createApp(): Hono {
   }
 
   app.route('/api/files', filesRouter)
+  app.route('/api/realtime', createRealtimeRouter())
 
   return app
 }

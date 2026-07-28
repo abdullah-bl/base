@@ -141,6 +141,28 @@ export class BaseClientError extends Error {
   }
 }
 
+export interface ChangeEvent<T = Record<string, unknown>> {
+  id: string
+  collection: string
+  action: 'create' | 'update' | 'delete'
+  recordId: string
+  record: T
+  ts: number
+}
+
+export interface Subscription {
+  close(): void
+}
+
+export interface SubscribeOptions {
+  /** Called on connection errors; return false to stop reconnecting */
+  onError?: (err: unknown) => void | boolean
+  /** Initial Last-Event-ID for replay */
+  lastEventId?: string
+  /** Reconnect with exponential backoff (default true) */
+  reconnect?: boolean
+}
+
 export interface BaseClientOptions {
   baseUrl: string
   /** Cookie header value (e.g. from document.cookie or set-cookie join) */
@@ -161,6 +183,30 @@ type CollectionClient<T, C, U> = {
   create(data: C): Promise<T>
   update(id: string, data: U): Promise<T>
   delete(id: string, opts?: { hard?: boolean }): Promise<{ id: string; deleted: boolean; soft: boolean }>
+  subscribe(
+    handler: (event: ChangeEvent<T>) => void,
+    opts?: SubscribeOptions,
+  ): Subscription
+}
+
+function parseSseFrames(buffer: string): { frames: Array<{ event?: string; data?: string; id?: string }>; rest: string } {
+  const frames: Array<{ event?: string; data?: string; id?: string }> = []
+  const parts = buffer.split('\\n\\n')
+  const rest = parts.pop() ?? ''
+  for (const part of parts) {
+    if (!part.trim()) continue
+    const frame: { event?: string; data?: string; id?: string } = {}
+    const dataLines: string[] = []
+    for (const line of part.split('\\n')) {
+      if (line.startsWith(':')) continue
+      if (line.startsWith('event:')) frame.event = line.slice(6).trim()
+      else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
+      else if (line.startsWith('id:')) frame.id = line.slice(3).trim()
+    }
+    if (dataLines.length) frame.data = dataLines.join('\\n')
+    frames.push(frame)
+  }
+  return { frames, rest }
 }
 
 function createCollectionClient<T, C, U>(
@@ -203,6 +249,13 @@ function createCollectionClient<T, C, U>(
       })
       return res.data
     },
+    subscribe(handler, opts) {
+      return client.subscribeMany(
+        [name],
+        (event) => handler(event as ChangeEvent<T>),
+        opts,
+      )
+    },
   }
 }
 
@@ -244,6 +297,96 @@ ${initCollections}
       throw new BaseClientError(res.status, json as ApiErrorBody)
     }
     return json as T
+  }
+
+  /**
+   * Subscribe to change events for one or more collections via SSE
+   * (fetch + ReadableStream — supports Cookie / Authorization headers).
+   */
+  subscribeMany(
+    collections: string[],
+    handler: (event: ChangeEvent) => void,
+    opts?: SubscribeOptions,
+  ): Subscription {
+    const controller = new AbortController()
+    let closed = false
+    let lastEventId = opts?.lastEventId
+    let attempt = 0
+    const shouldReconnect = opts?.reconnect !== false
+
+    const run = async () => {
+      while (!closed) {
+        try {
+          const qs = new URLSearchParams()
+          qs.set('collections', collections.join(','))
+          if (lastEventId) qs.set('lastEventId', lastEventId)
+
+          const headers = new Headers(this.extraHeaders)
+          headers.set('Accept', 'text/event-stream')
+          if (this.cookie) headers.set('Cookie', this.cookie)
+          if (lastEventId) headers.set('Last-Event-ID', lastEventId)
+
+          const res = await this.fetchImpl(
+            \`\${this.baseUrl}/api/realtime?\${qs.toString()}\`,
+            { headers, signal: controller.signal },
+          )
+
+          if (!res.ok) {
+            const json = await res.json().catch(() => ({}))
+            throw new BaseClientError(res.status, json as ApiErrorBody)
+          }
+
+          if (!res.body) {
+            throw new Error('Realtime response has no body')
+          }
+
+          attempt = 0
+          const reader = res.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+
+          while (!closed) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            const { frames, rest } = parseSseFrames(buffer)
+            buffer = rest
+            for (const frame of frames) {
+              if (frame.id) lastEventId = frame.id
+              if (frame.event === 'change' && frame.data) {
+                try {
+                  handler(JSON.parse(frame.data) as ChangeEvent)
+                } catch {
+                  // ignore malformed payloads
+                }
+              }
+            }
+          }
+        } catch (err) {
+          if (closed || controller.signal.aborted) break
+          const cont = opts?.onError?.(err)
+          if (cont === false || !shouldReconnect) break
+          attempt += 1
+          const delay = Math.min(30_000, 500 * 2 ** Math.min(attempt, 5))
+          await new Promise((r) => setTimeout(r, delay))
+          continue
+        }
+
+        if (closed || !shouldReconnect) break
+        attempt += 1
+        const delay = Math.min(30_000, 500 * 2 ** Math.min(attempt, 5))
+        await new Promise((r) => setTimeout(r, delay))
+      }
+    }
+
+    void run()
+
+    return {
+      close() {
+        closed = true
+        controller.abort()
+      },
+    }
   }
 
   async signUp(body: { email: string; password: string; name: string }) {

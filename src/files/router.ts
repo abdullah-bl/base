@@ -7,7 +7,7 @@ import {
   deleteFileRecord,
   listFileRecords,
 } from './meta.js'
-import { saveFile, deleteFile, getFilePath } from './storage.js'
+import { saveFile, deleteFile, getStorageDriver } from './storage.js'
 
 const router = new Hono()
 
@@ -99,43 +99,12 @@ router.get('/:id', async (c) => {
     )
   }
 
-  const filepath = getFilePath(record.storageKey)
-  if (!filepath) {
-    return c.json(
-      {
-        error: { code: 'NOT_FOUND', message: 'File data missing from storage' },
-      },
-      404,
-    )
-  }
-
   const safeName = sanitizeFilename(record.originalName)
-
-  if (typeof Bun !== 'undefined') {
-    const bunFile = Bun.file(filepath)
-    if (!(await bunFile.exists())) {
-      return c.json(
-        {
-          error: {
-            code: 'NOT_FOUND',
-            message: 'File data missing from storage',
-          },
-        },
-        404,
-      )
-    }
-    return new Response(bunFile, {
-      headers: {
-        'Content-Type': record.mimeType,
-        'Content-Length': String(record.size),
-        'Content-Disposition': `inline; filename="${safeName}"`,
-      },
-    })
-  }
-
-  const { getFile } = await import('./storage.js')
-  const data = await getFile(record.storageKey)
-  if (!data) {
+  const result = await getStorageDriver().download(
+    record.storageKey,
+    record.mimeType,
+  )
+  if (!result) {
     return c.json(
       {
         error: { code: 'NOT_FOUND', message: 'File data missing from storage' },
@@ -144,7 +113,11 @@ router.get('/:id', async (c) => {
     )
   }
 
-  return new Response(data, {
+  if (result.kind === 'redirect') {
+    return c.redirect(result.url, 302)
+  }
+
+  return new Response(result.body, {
     headers: {
       'Content-Type': record.mimeType,
       'Content-Length': String(record.size),

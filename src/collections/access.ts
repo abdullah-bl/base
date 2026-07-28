@@ -43,6 +43,24 @@ export function warnMissingAccessPolicies(collections: CollectionSchema[]): void
 }
 
 /**
+ * Pure read-access predicate shared by HTTP get/list and SSE fan-out.
+ * Returns true when `user` may see `record` under the collection's read policy.
+ */
+export function canReadRecord(
+  collection: CollectionSchema,
+  user: AuthUser | null,
+  record: Record<string, unknown>,
+): boolean {
+  const level = getAccessLevel(collection, 'read')
+  if (level === 'public') return true
+  if (!user?.id) return false
+  if (level === 'authenticated') return true
+  const ownerField = collection.access?.ownerField
+  if (!ownerField) return false
+  return record[ownerField] === user.id
+}
+
+/**
  * Ensure the caller may perform an operation. Throws ForbiddenError on denial.
  * For `owner` rules on read/update/delete of a specific record, pass the record.
  */
@@ -75,6 +93,14 @@ export function assertAccess(
 
   // List / pre-fetch path: ownership is enforced via SQL filter (ownerFilterSql)
   if (!record) {
+    return
+  }
+
+  // For read, share the predicate with SSE. For update/delete, owner-field match.
+  if (operation === 'read') {
+    if (!canReadRecord(collection, ctx.user, record)) {
+      throw new ForbiddenError('Not your record')
+    }
     return
   }
 

@@ -14,6 +14,7 @@ import {
   ownerFilterSql,
   type AuthUser,
 } from './access.js'
+import { publishChange } from '../realtime/bus.js'
 
 export async function create(
   collection: CollectionSchema,
@@ -73,7 +74,9 @@ export async function create(
     args: values as any[],
   })
 
-  return deserializeRow(record as Record<string, unknown>, collection)
+  const created = deserializeRow(record as Record<string, unknown>, collection)
+  publishChange(collection, 'create', created)
+  return created
 }
 
 export async function getById(
@@ -165,7 +168,11 @@ export async function update(
 
   if ((result.rowsAffected || 0) === 0) return null
 
-  return getByIdInternal(collection, id)
+  const updated = await getByIdInternal(collection, id)
+  if (updated) {
+    publishChange(collection, 'update', updated)
+  }
+  return updated
 }
 
 export async function remove(
@@ -205,6 +212,7 @@ export async function remove(
     })
   }
 
+  publishChange(collection, 'delete', existing)
   return true
 }
 

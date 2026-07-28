@@ -18,10 +18,14 @@ export function getDbPath(): string | null {
 }
 
 export function ensureDirectories(): void {
-  const dirs = [getUploadsDir()]
+  const dirs: string[] = []
   const db = resolveDbPath()
   if (db) {
-    dirs.unshift(path.dirname(db))
+    dirs.push(path.dirname(db))
+  }
+  // Only create local uploads dir when using the local storage driver
+  if (env.STORAGE_DRIVER === 'local') {
+    dirs.push(getUploadsDir())
   }
   for (const dir of dirs) {
     if (!fs.existsSync(dir)) {

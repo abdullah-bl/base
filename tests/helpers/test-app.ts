@@ -28,7 +28,12 @@ export async function createTestContext(options?: {
   process.env.BETTER_AUTH_URL = 'http://localhost:3000'
   process.env.CORS_ORIGINS = 'http://localhost:3000'
   process.env.HARD_DELETE_ENABLED = 'false'
+  process.env.STORAGE_DRIVER = 'local'
+  process.env.REALTIME_ENABLED = 'true'
   delete process.env.DATABASE_AUTH_TOKEN
+  delete process.env.S3_BUCKET
+  delete process.env.S3_ACCESS_KEY_ID
+  delete process.env.S3_SECRET_ACCESS_KEY
 
   // Dynamic imports after env is set — reset singletons
   const { resetEnvForTests, loadEnv } = await import('../../src/env.js')
@@ -59,6 +64,14 @@ export async function createTestContext(options?: {
 
   const { resetFilesTableCache } = await import('../../src/files/meta.js')
   resetFilesTableCache()
+
+  const { resetStorageDriverForTests } = await import(
+    '../../src/files/storage.js'
+  )
+  resetStorageDriverForTests()
+
+  const { resetBusForTests } = await import('../../src/realtime/bus.js')
+  resetBusForTests()
 
   const { resetDefaultAppForTests, createApp } = await import(
     '../../src/server/hono-app.js'

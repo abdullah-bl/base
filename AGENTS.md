@@ -4,15 +4,15 @@
 
 ## What Is This Project?
 
-**Base** is a minimalistic, self-hosted Backend-as-a-Service (BaaS). It provides schema-driven REST CRUD, authentication, file uploads, access rules, additive schema evolution, and a generated TypeScript client — all in a single Bun process. It's an alternative to Supabase, PocketBase, and Convex focused on minimal overhead.
+**Base** is a minimalistic, self-hosted Backend-as-a-Service (BaaS). It provides schema-driven REST CRUD, authentication, file uploads, access rules, additive schema evolution, realtime SSE subscriptions, and a generated TypeScript client — all in a single Bun process. It's an alternative to Supabase, PocketBase, and Convex focused on minimal overhead.
 
-**One-sentence summary:** Define TypeScript collections → get typed REST API + validation + auth + ownership rules + files + SQLite automatically.
+**One-sentence summary:** Define TypeScript collections → get typed REST API + validation + auth + ownership rules + files + realtime + SQLite automatically.
 
 ## Tech Stack
 
 | Layer | Technology | Why |
 |-------|-----------|-----|
-| Runtime | **Bun** | Fast startup, native TS, built-in APIs |
+| Runtime | **Bun** | Fast startup, native TS, built-in APIs (+ native S3Client) |
 | HTTP | **Hono** | Ultra-lightweight, type-safe routing |
 | Database | **libSQL / SQLite** (`@libsql/client`) | Embedded (`file:`) or remote (`libsql://` Turso) — same code |
 | ORM | **Drizzle ORM** (`drizzle-orm/libsql`) | Better Auth adapter + optional kit tooling |
@@ -50,11 +50,20 @@ base/
 │   ├── collections/
 │   │   ├── table-create.ts     CREATE TABLE IF NOT EXISTS
 │   │   ├── serialize.ts        Shared serialize/deserialize
-│   │   ├── access.ts           RLS-lite access helpers
-│   │   ├── crud.ts             create/get/update/remove
+│   │   ├── access.ts           RLS-lite access helpers (+ canReadRecord)
+│   │   ├── crud.ts             create/get/update/remove (+ publishChange)
 │   │   ├── query.ts            list + filter/sort/pagination
 │   │   └── router.ts           Hono CRUD routes
-│   ├── files/                  Upload/download with ownership
+│   ├── realtime/
+│   │   ├── bus.ts              In-process pub/sub + replay buffer
+│   │   └── router.ts           GET /api/realtime SSE endpoint
+│   ├── files/
+│   │   ├── driver.ts           StorageDriver interface
+│   │   ├── drivers/local.ts    Local disk driver
+│   │   ├── drivers/s3.ts       Bun.S3Client driver
+│   │   ├── storage.ts          Driver resolver + key generation
+│   │   ├── meta.ts             File metadata table
+│   │   └── router.ts           Upload/download routes
 │   └── server/                 CORS, errors, createApp()
 ├── tests/                      Unit + integration tests
 └── package.json
@@ -74,8 +83,9 @@ Hono App (createApp)
     ├── /api/health
     ├── /api/auth/me          → requireAuth
     ├── /api/auth/*           → Better Auth
-    ├── /api/collections/*    → access rules + Zod + CRUD
-    └── /api/files/*          → owner-only upload/download
+    ├── /api/collections/*    → access rules + Zod + CRUD → publishChange
+    ├── /api/realtime         → SSE (filtered by canReadRecord)
+    └── /api/files/*          → owner-only upload/download (local | s3)
 ```
 
 ## Key Design Patterns
@@ -89,7 +99,7 @@ const posts = defineCollection('posts', {
 })
 ```
 
-Generates: SQL table, Zod validators, REST routes, ownership filters, typed client methods.
+Generates: SQL table, Zod validators, REST routes, ownership filters, typed client methods + subscribe.
 
 ### 2. Single Registry
 
@@ -101,11 +111,19 @@ One libSQL client from `src/db/client.ts` (`getClient()` / `initDb()`). Collecti
 
 ### 4. Access Rules (RLS-lite)
 
-Per-collection `access` with levels `public` | `authenticated` | `owner`. Owner constraints are applied in SQL (list/get) and checked on mutate. Owner fields are server-set on create.
+Per-collection `access` with levels `public` | `authenticated` | `owner`. Owner constraints are applied in SQL (list/get) and checked on mutate. Owner fields are server-set on create. `canReadRecord()` is the shared predicate used by HTTP get and SSE fan-out.
 
 ### 5. Additive Schema Evolution
 
 `src/schema/evolve.ts` diffs registered schemas vs stored fingerprints. Supports new nullable/defaulted columns and indexes. Destructive changes fail with a report. CLI: `bun run schema:status` / `schema:apply`.
+
+### 6. Realtime (in-process SSE)
+
+`publishChange()` from CRUD fans out to subscribers on `GET /api/realtime?collections=...`. Filtering uses `canReadRecord`. Ring buffer supports `Last-Event-ID` replay. Single-process only (no cross-instance fan-out).
+
+### 7. Pluggable Storage
+
+`StorageDriver` interface with `local` and `s3` implementations. `storageKey` in DB is always a flat ULID; S3 prefix is driver-internal. Download mode: `proxy` (default) or `redirect` (presigned).
 
 ## Development Commands
 
@@ -133,8 +151,7 @@ bun run generate:client  # Emit src/client/generated.ts
 
 ## What's NOT Here (Deferred)
 
-- Realtime/subscriptions (SSE) — next after access rules
-- S3 storage adapter
-- Vector search endpoint (`f.vector()` stores only)
+- Vector search endpoint (`f.vector()` stores only) — libSQL/Turso extension parity unresolved
 - Admin dashboard
-- GraphQL / workflows
+- GraphQL / functions / workflows
+- Cross-process realtime (multi-instance fan-out)
