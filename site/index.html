@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Base — Self-hosted BaaS in one binary</title>
+    <meta
+      name="description"
+      content="Base is a minimal self-hosted Backend-as-a-Service. Define TypeScript collections, get REST, auth, files, realtime, and an admin UI — shipped as a single executable."
+    />
+    <meta property="og:title" content="Base — Self-hosted BaaS in one binary" />
+    <meta
+      property="og:description"
+      content="Schema in TypeScript. Backend out. SQLite, auth, files, realtime, admin — one Bun binary."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Literata:opsz,wght@7..72,400;7..72,600&family=Syne:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+
+    <header class="top">
+      <a class="mark" href="./" aria-label="Base home">
+        <span class="mark-icon">B/</span>
+        <span>BASE</span>
+      </a>
+      <nav aria-label="Main navigation">
+        <a href="#features">Features</a>
+        <a href="#install">Quickstart</a>
+        <a class="nav-github" href="https://github.com/abdullah-bl/base">
+          GitHub <span aria-hidden="true">↗</span>
+        </a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow"><span></span> Open source · Self-hosted · Bun native</p>
+          <h1>Your backend,<br /><em>without the platform.</em></h1>
+          <p class="lede">
+            Define collections in TypeScript. Get a typed REST API, auth, files,
+            realtime, backups, and an admin UI — in one portable binary.
+          </p>
+          <div class="cta">
+            <a class="btn primary" href="#install">
+              Start building <span aria-hidden="true">→</span>
+            </a>
+            <a class="btn ghost" href="https://github.com/abdullah-bl/base">View on GitHub</a>
+          </div>
+          <ul class="hero-meta" aria-label="Base highlights">
+            <li><strong>01</strong> One executable</li>
+            <li><strong>02</strong> SQLite or Turso</li>
+            <li><strong>03</strong> MIT licensed</li>
+          </ul>
+        </div>
+
+        <div class="hero-visual">
+          <div class="code-window">
+            <div class="window-bar" aria-hidden="true">
+              <div class="window-dots"><i></i><i></i><i></i></div>
+              <span>collections.ts</span>
+              <span class="window-status">● READY</span>
+            </div>
+            <pre class="sheet" aria-label="Example Base collection"><code><span class="line"><b>01</b><span class="k">import</span> { defineCollection, f } <span class="k">from</span> <span class="s">'base'</span></span>
+<span class="line"><b>02</b></span>
+<span class="line"><b>03</b><span class="k">export const</span> posts = <span class="f">defineCollection</span>(<span class="s">'posts'</span>, {</span>
+<span class="line"><b>04</b>  fields: {</span>
+<span class="line"><b>05</b>    title: f.string().required().max(<span class="n">200</span>),</span>
+<span class="line"><b>06</b>    body: f.text().required(),</span>
+<span class="line"><b>07</b>    authorId: f.reference(<span class="s">'user'</span>),</span>
+<span class="line"><b>08</b>  },</span>
+<span class="line"><b>09</b>  access: { read: <span class="s">'public'</span>, write: <span class="s">'owner'</span> },</span>
+<span class="line"><b>10</b>})</span></code></pre>
+            <div class="generated">
+              <span>GENERATED</span>
+              <div><i>GET</i> /api/collections/posts</div>
+              <div><i>DOC</i> /api/openapi.json</div>
+              <div><i>SSE</i> /api/realtime</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="manifesto">
+        <p>THE WHOLE BACKEND</p>
+        <div class="marquee" aria-label="Base capabilities">
+          <span>REST API</span><i>✦</i><span>AUTH</span><i>✦</i><span>FILES</span><i>✦</i>
+          <span>REALTIME</span><i>✦</i><span>ADMIN</span><i>✦</i><span>BACKUPS</span>
+        </div>
+      </section>
+
+      <section class="features" id="features">
+        <div class="section-head">
+          <p class="eyebrow"><span></span> Product principles</p>
+          <h2>Small surface.<br />Serious backend.</h2>
+          <p>Everything you need to ship, and nothing that turns your backend into somebody else's platform.</p>
+        </div>
+        <div class="feature-grid">
+          <article>
+            <span class="feature-no">01 / SCHEMA</span>
+            <h3>TypeScript is the source of truth.</h3>
+            <p>Collections generate validation, database tables, REST routes, OpenAPI, and a typed client.</p>
+            <code>defineCollection('posts', { ... })</code>
+          </article>
+          <article>
+            <span class="feature-no">02 / RUNTIME</span>
+            <h3>One process. One binary.</h3>
+            <p>Bun, SQLite, auth, storage, realtime, backups, and the admin UI travel together.</p>
+            <code>base serve --init</code>
+          </article>
+          <article>
+            <span class="feature-no">03 / OWNERSHIP</span>
+            <h3>Your server. Your data.</h3>
+            <p>Deploy to a VPS, Docker, or your laptop. Move, inspect, export, and restore at any time.</p>
+            <code>base db backup</code>
+          </article>
+        </div>
+      </section>
+
+      <section class="install" id="install">
+        <div class="install-copy">
+          <p class="eyebrow light"><span></span> Quickstart</p>
+          <h2>From zero to API<br />in three commands.</h2>
+          <p>No account. No project wizard. Download the binary and start building locally.</p>
+          <div class="os-list">
+            <span>macOS ARM</span><span>Linux x64</span><span>Linux ARM</span><span>Windows</span>
+          </div>
+        </div>
+        <div class="terminal">
+          <div class="terminal-bar">
+            <span>base — zsh</span>
+            <span>● ● ●</span>
+          </div>
+          <div class="term" data-copy>
+            <span class="prompt">$</span>
+            <code id="install-cmd">curl -fsSL https://github.com/abdullah-bl/base/releases/latest/download/install.sh | bash</code>
+            <button type="button" class="copy" aria-label="Copy install command">COPY</button>
+          </div>
+          <pre class="steps"><code><span class="muted"># create your backend</span>
+<span class="prompt">$</span> mkdir my-backend &amp;&amp; cd my-backend
+<span class="prompt">$</span> base init
+<span class="success">✓</span> Created collections.ts and .env
+
+<span class="prompt">$</span> base serve
+<span class="success">✓</span> API ready at http://localhost:3000
+<span class="success">✓</span> Admin ready at <a href="http://localhost:3000/_/">http://localhost:3000/_/</a></code></pre>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <a class="mark" href="./"><span class="mark-icon">B/</span><span>BASE</span></a>
+      <p>Backend infrastructure for people who<br />prefer code over control panels.</p>
+      <div>
+        <a href="https://github.com/abdullah-bl/base">GitHub ↗</a>
+        <a href="#install">Install ↑</a>
+      </div>
+      <small>MIT LICENSE · BUILT WITH BUN</small>
+    </footer>
+
+    <script src="./main.js"></script>
+  </body>
+</html>
