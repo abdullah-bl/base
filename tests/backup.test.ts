@@ -1,5 +1,8 @@
 import { describe, test, expect, afterEach } from 'bun:test'
 import { existsSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve, isAbsolute } from 'node:path'
 import {
   createTestContext,
   json,
@@ -112,5 +115,54 @@ describe('Backup / restore', () => {
       }),
     )
     expect(check.data.rows.length).toBe(1)
+  })
+
+  test('absolute BACKUP_DIR stores manifests under configured temp dir', async () => {
+    const backupRoot = mkdtempSync(join(tmpdir(), 'base-backup-abs-'))
+    try {
+      ctx = await createTestContext({
+        env: { BACKUP_DIR: backupRoot },
+      })
+
+      const create = await json<{ data: { id: string } }>(
+        await ctx.app.request('http://localhost:3000/api/admin/backups', {
+          method: 'POST',
+          headers: {
+            'X-Admin-Token': TOKEN,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ includeUploads: false }),
+        }),
+      )
+
+      const manifestPath = join(backupRoot, `${create.data.id}.manifest.json`)
+      expect(isAbsolute(backupRoot)).toBe(true)
+      expect(backupRoot.startsWith(tmpdir())).toBe(true)
+      expect(existsSync(manifestPath)).toBe(true)
+
+      const { getBackupFilePath, getBackup } = await import(
+        '../src/backup/index.js'
+      )
+      const manifest = getBackup(create.data.id)
+      const dbPath = getBackupFilePath(manifest!)
+      expect(isAbsolute(dbPath)).toBe(true)
+      expect(dbPath.startsWith(backupRoot)).toBe(true)
+    } finally {
+      rmSync(backupRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('relative BACKUP_DIR resolves under cwd', async () => {
+    const relativeDir = './data/backups-test-relative'
+    const expected = resolve(process.cwd(), relativeDir)
+
+    process.env.BACKUP_DIR = relativeDir
+    const { resetEnvForTests, loadEnv } = await import('../src/env.js')
+    resetEnvForTests()
+    loadEnv(true)
+
+    const { getBackupDir } = await import('../src/config.js')
+    expect(getBackupDir()).toBe(expected)
+    expect(isAbsolute(getBackupDir())).toBe(true)
   })
 })

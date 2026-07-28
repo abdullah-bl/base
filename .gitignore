@@ -44,3 +44,6 @@ coverage/
 # Temporary
 tmp/
 temp/
+
+# Accidental relative macOS temp path leaks
+/var/

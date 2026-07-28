@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { createClient } from '@libsql/client'
 
 export interface TestContext {
@@ -37,7 +37,7 @@ export async function createTestContext(options?: {
   process.env.LOG_PERSIST = 'true'
   process.env.RATE_LIMIT_ENABLED = 'false'
   process.env.WEBHOOKS_ENABLED = 'false'
-  process.env.BACKUP_DIR = join(dir, 'backups')
+  process.env.BACKUP_DIR = resolve(dir, 'backups')
   delete process.env.DATABASE_AUTH_TOKEN
   delete process.env.S3_BUCKET
   delete process.env.S3_ACCESS_KEY_ID

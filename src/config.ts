@@ -13,6 +13,13 @@ export function getUploadsDir(): string {
   return path.resolve(process.cwd(), env.STORAGE_PATH)
 }
 
+export function getBackupDir(): string {
+  const configured = env.BACKUP_DIR
+  return path.isAbsolute(configured)
+    ? path.resolve(configured)
+    : path.resolve(process.cwd(), configured)
+}
+
 export function getDbPath(): string | null {
   return resolveDbPath()
 }

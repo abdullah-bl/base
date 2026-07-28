@@ -18,7 +18,7 @@ import { pipeline } from 'node:stream/promises'
 import { ulid } from 'ulid'
 import env from '../env.js'
 import { getClient, resetClientForTests } from '../db/client.js'
-import { getDbPath, getUploadsDir, ensureDirectories } from '../config.js'
+import { getDbPath, getUploadsDir, getBackupDir, ensureDirectories } from '../config.js'
 import { getRegisteredCollections } from '../schema/registry.js'
 import { fingerprintCollection } from '../schema/evolve.js'
 import {
@@ -42,7 +42,7 @@ export interface BackupManifest {
 }
 
 function backupDir(): string {
-  const dir = join(process.cwd(), env.BACKUP_DIR)
+  const dir = getBackupDir()
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true })
   }
