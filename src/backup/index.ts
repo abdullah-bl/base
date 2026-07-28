@@ -1,5 +1,5 @@
+import { createHash } from 'node:crypto'
 import {
-  createHash,
   createReadStream,
   existsSync,
   mkdirSync,
@@ -10,11 +10,11 @@ import {
   writeFileSync,
   readFileSync,
   copyFileSync,
+  createWriteStream,
 } from 'node:fs'
 import { join, basename } from 'node:path'
 import { createGzip } from 'node:zlib'
 import { pipeline } from 'node:stream/promises'
-import { createWriteStream } from 'node:fs'
 import { ulid } from 'ulid'
 import env from '../env.js'
 import { getClient, resetClientForTests } from '../db/client.js'
@@ -141,7 +141,9 @@ async function listAllTables(): Promise<string[]> {
   const result = await client.execute(
     `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
   )
-  return (result.rows || []).map((r) => String((r as { name: string }).name))
+  return (result.rows || []).map((r) =>
+    String((r as unknown as { name: string }).name),
+  )
 }
 
 function copyDirRecursive(src: string, dest: string): void {

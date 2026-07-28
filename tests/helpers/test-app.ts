@@ -16,6 +16,7 @@ export interface TestContext {
  */
 export async function createTestContext(options?: {
   collections?: () => void | Promise<void>
+  env?: Record<string, string>
 }): Promise<TestContext> {
   const dir = mkdtempSync(join(tmpdir(), 'base-test-'))
   const dbPath = join(dir, 'test.db')
@@ -30,10 +31,24 @@ export async function createTestContext(options?: {
   process.env.HARD_DELETE_ENABLED = 'false'
   process.env.STORAGE_DRIVER = 'local'
   process.env.REALTIME_ENABLED = 'true'
+  process.env.ADMIN_ENABLED = 'true'
+  process.env.ADMIN_TOKEN =
+    'test-admin-token-at-least-32-characters-long'
+  process.env.LOG_PERSIST = 'true'
+  process.env.RATE_LIMIT_ENABLED = 'false'
+  process.env.WEBHOOKS_ENABLED = 'false'
+  process.env.BACKUP_DIR = join(dir, 'backups')
   delete process.env.DATABASE_AUTH_TOKEN
   delete process.env.S3_BUCKET
   delete process.env.S3_ACCESS_KEY_ID
   delete process.env.S3_SECRET_ACCESS_KEY
+  delete process.env.ADMIN_EMAILS
+
+  if (options?.env) {
+    for (const [k, v] of Object.entries(options.env)) {
+      process.env[k] = v
+    }
+  }
 
   // Dynamic imports after env is set — reset singletons
   const { resetEnvForTests, loadEnv } = await import('../../src/env.js')
@@ -72,6 +87,19 @@ export async function createTestContext(options?: {
 
   const { resetBusForTests } = await import('../../src/realtime/bus.js')
   resetBusForTests()
+
+  const { resetLogBusForTests } = await import('../../src/observability/bus.js')
+  resetLogBusForTests()
+
+  const { resetRateLimitForTests } = await import(
+    '../../src/server/rate-limit.js'
+  )
+  resetRateLimitForTests()
+
+  const { setMaintenanceMode } = await import(
+    '../../src/server/maintenance.js'
+  )
+  setMaintenanceMode(false)
 
   const { resetDefaultAppForTests, createApp } = await import(
     '../../src/server/hono-app.js'

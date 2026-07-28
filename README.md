@@ -9,10 +9,16 @@ bun run src/index.ts  # running on :3000
 ## Features
 
 - **Schema-to-API** — Define collections in TypeScript, get REST CRUD + validation automatically
-- **Auth** — Email/password, sessions, OAuth-ready (Better Auth)
+- **Auth** — Email/password, sessions, roles, API keys (Better Auth)
 - **Access rules** — Compact owner / authenticated / public policies per collection
+- **Rich queries** — Filter operators (`gte`, `like`, `in`, …) + text search
 - **Realtime** — SSE collection-change subscriptions, filtered by access rules
+- **Webhooks** — Optional outbound delivery of change events
 - **Files** — Upload, download, delete with ownership tracking (local disk or S3)
+- **Admin panel** — Data viewer, logs, audit, backups, SQL console at `/_`
+- **Backup / restore** — `VACUUM INTO` snapshots with checksum manifests
+- **CLI** — `base` standalone CLI; compile to a single-file Bun executable
+- **OpenAPI** — Spec at `/api/openapi.json` generated from the registry
 - **SQLite** — libSQL/SQLite embedded, zero-config (Turso-ready)
 - **Schema evolution** — Additive column/index migrations with dry-run CLI
 - **Typed client** — Generate a TypeScript client from your collections (incl. `.subscribe()`)
@@ -28,6 +34,9 @@ bun install
 # Configure (optional for local dev — secret is auto-generated with a warning)
 cp .env.example .env
 
+# Build admin UI (optional for API-only)
+bun run build:admin
+
 # Start dev server
 bun run dev
 
@@ -35,6 +44,7 @@ bun run dev
 bun run check
 
 # Server runs at http://localhost:3000
+# Admin UI at http://localhost:3000/_/
 ```
 
 ## Define Collections
@@ -85,7 +95,7 @@ const posts = defineCollection('posts', {
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/collections/:name` | List — `?filter={"x":"y"}&sort=-createdAt&page=1&perPage=20` (also `filter[x]=y`) |
+| GET | `/api/collections/:name` | List — `?filter={"x":"y"}` / `{"viewCount__gte":10}` / `filter[x__like]=%foo%` + `?search=` + sort/page |
 | GET | `/api/collections/:name/:id` | Get by ID |
 | POST | `/api/collections/:name` | Create |
 | PATCH | `/api/collections/:name/:id` | Update (partial) |
@@ -118,11 +128,42 @@ sub.close()
 
 Or multiplex: `client.subscribeMany(['posts', 'comments'], handler)`.
 
-### Health
+### Health / OpenAPI
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/health` | `{ status: "ok", timestamp, version, uptime }` |
+| GET | `/api/health` | `{ status, timestamp, version, uptime }` |
+| GET | `/api/health/live` | Liveness probe |
+| GET | `/api/health/ready` | Readiness (DB + maintenance check) |
+| GET | `/api/openapi.json` | OpenAPI 3 spec from registered collections |
+
+### Admin API
+
+All `/api/admin/*` routes require `role=admin` session **or** `X-Admin-Token`. First registered user is promoted to admin; set `ADMIN_EMAILS` / `ADMIN_TOKEN` for bootstrap.
+
+| Area | Endpoints |
+|------|-----------|
+| Overview / settings | `GET /overview`, `GET /settings`, `GET /metrics` |
+| Data viewer | `GET /data`, `GET|PATCH|DELETE /data/:table/:id` |
+| SQL console | `POST /sql` (writes need `{ confirm: true }`) |
+| Schema | `GET /collections`, `GET /schema/status`, `POST /schema/apply`, `GET /migrations` |
+| Logs / audit | `GET /logs`, `GET /logs/stream`, `GET /audit` |
+| Users / files | `GET /users`, `PATCH /users/:id/role`, `GET /files`, … |
+| Backups | `GET|POST /backups`, `POST /backups/:id/restore`, … |
+| API keys / webhooks | `GET|POST /api-keys`, `GET|POST /webhooks` |
+
+Admin UI: build with `bun run build:admin`, open `http://localhost:3000/_/`.
+
+### CLI
+
+```bash
+bun run cli -- serve
+bun run cli -- doctor
+bun run cli -- schema status
+bun run cli -- db backup
+bun run cli -- admin promote you@example.com
+bun run build:binary   # → dist/base
+```
 
 ## Field Types
 
@@ -228,6 +269,14 @@ Environment variables (see `.env.example`):
 | `HARD_DELETE_ENABLED` | `false` | Allow `?hard=true` deletes |
 | `REALTIME_ENABLED` | `true` | SSE subscriptions |
 | `REALTIME_REPLAY_BUFFER` | `100` | Ring buffer size for `Last-Event-ID` replay |
+| `ADMIN_ENABLED` | `true` | Serve admin API + UI |
+| `ADMIN_PATH` | `/_` | Admin UI mount path |
+| `ADMIN_TOKEN` | — | Break-glass admin header (min 32 chars) |
+| `ADMIN_EMAILS` | — | Comma-separated emails auto-promoted to admin |
+| `LOG_LEVEL` / `LOG_PERSIST` | `info` / `true` | Structured logging |
+| `BACKUP_DIR` / `BACKUP_RETENTION` | `./data/backups` / `10` | Snapshot storage |
+| `RATE_LIMIT_ENABLED` | `true` | In-memory rate limiting |
+| `WEBHOOKS_ENABLED` | `false` | Outbound change webhooks |
 | `LITESTREAM_BUCKET` | — | Separate bucket for Litestream (may share `S3_*` credentials) |
 
 ## Deployment
@@ -254,9 +303,13 @@ docker compose up
 ### With Litestream (replication to S3)
 
 ```bash
+# Compose profile
+export LITESTREAM_BUCKET=my-replicas
+docker compose --profile replicate up
+
+# Or manually:
 # Terminal 1: App
 bun run src/index.ts
-
 # Terminal 2: Litestream
 litestream replicate -config litestream.yml
 ```

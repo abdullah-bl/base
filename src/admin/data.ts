@@ -6,7 +6,7 @@ export async function getTableColumns(table: string) {
   const client = getClient()
   const info = await client.execute(`PRAGMA table_info("${table}")`)
   return (info.rows || []).map((r) => {
-    const row = r as {
+    const row = r as unknown as {
       name: string
       type: string
       notnull: number

@@ -78,6 +78,15 @@ export function publishChange(
       // Never let a subscriber break the publisher
     }
   }
+
+  // Fire-and-forget outbound webhooks
+  void import('../webhooks/index.js')
+    .then(({ dispatchWebhooks }) => {
+      dispatchWebhooks(event)
+    })
+    .catch(() => {
+      // ignore
+    })
 }
 
 export interface SubscribeOptions {
@@ -152,4 +161,12 @@ export function getRingBufferForTests(): readonly ChangeEvent[] {
 /** Inspect subscriber count — for tests only. */
 export function getSubscriberCountForTests(): number {
   return subscribers.size
+}
+
+export function getSubscriberCount(): number {
+  return subscribers.size
+}
+
+export function getRecentEvents(limit = 50): ChangeEvent[] {
+  return ringBuffer.slice(-limit)
 }

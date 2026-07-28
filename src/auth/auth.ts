@@ -38,7 +38,7 @@ export function getAuth(): AuthInstance {
       databaseHooks: {
         user: {
           create: {
-            after: async (user) => {
+            after: async (user: { id: string; email: string }) => {
               await promoteIfNeeded(user.id, user.email)
             },
           },
@@ -55,7 +55,7 @@ export function getAuth(): AuthInstance {
         },
       },
       trustedOrigins: origins,
-    }) as AuthInstance
+    }) as unknown as AuthInstance
   }
   return authInstance
 }

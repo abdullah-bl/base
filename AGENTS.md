@@ -4,9 +4,9 @@
 
 ## What Is This Project?
 
-**Base** is a minimalistic, self-hosted Backend-as-a-Service (BaaS). It provides schema-driven REST CRUD, authentication, file uploads, access rules, additive schema evolution, realtime SSE subscriptions, and a generated TypeScript client — all in a single Bun process. It's an alternative to Supabase, PocketBase, and Convex focused on minimal overhead.
+**Base** is a minimalistic, self-hosted Backend-as-a-Service (BaaS). It provides schema-driven REST CRUD, authentication, file uploads, access rules, additive schema evolution, realtime SSE subscriptions, an admin control plane, backup/restore, a standalone CLI, and a generated TypeScript client — all in a single Bun process. It's an alternative to Supabase, PocketBase, and Convex focused on minimal overhead.
 
-**One-sentence summary:** Define TypeScript collections → get typed REST API + validation + auth + ownership rules + files + realtime + SQLite automatically.
+**One-sentence summary:** Define TypeScript collections → get typed REST API + validation + auth + ownership rules + files + realtime + admin + SQLite automatically.
 
 ## Tech Stack
 
@@ -16,9 +16,10 @@
 | HTTP | **Hono** | Ultra-lightweight, type-safe routing |
 | Database | **libSQL / SQLite** (`@libsql/client`) | Embedded (`file:`) or remote (`libsql://` Turso) — same code |
 | ORM | **Drizzle ORM** (`drizzle-orm/libsql`) | Better Auth adapter + optional kit tooling |
-| Auth | **Better Auth** | Email/password, sessions, OAuth-ready |
+| Auth | **Better Auth** | Email/password, sessions, roles, API keys |
 | Validation | **Zod** | Auto-generated from schema definitions |
 | IDs | **ULID** (`ulid`) | Lexicographically sortable, URL-safe |
+| Admin UI | **React + Vite + Tailwind** | Built to `src/admin/dist`, served at `/_` |
 | Replication | **Litestream** (optional sidecar) | WAL streaming to S3/R2/B2 |
 
 ## Project Structure
@@ -26,46 +27,26 @@
 ```
 base/
 ├── collections.ts              ← USER EDITS: define collections here
+├── admin/                      React admin UI source (Vite)
 ├── scripts/
 │   ├── schema.ts               Schema evolution CLI (status/apply)
-│   └── generate-client.ts      Typed client generator
+│   ├── generate-client.ts      Typed client generator
+│   └── build-binaries.ts       Cross-compile base CLI
 ├── src/
-│   ├── index.ts                Entry point — Bun.serve
-│   ├── index-public.ts         Public API exports
-│   ├── env.ts                  Zod-validated env (prod-hardened)
-│   ├── config.ts               Paths + feature flags
-│   ├── client/generated.ts     Generated BaseClient (build-time)
-│   ├── schema/                 SCHEMA ENGINE
-│   │   ├── types.ts            Field/Collection/Access types
-│   │   ├── define.ts           f.* builders + defineCollection()
-│   │   ├── registry.ts         Single registry + validateRegistry()
-│   │   ├── to-zod.ts           Schema → Zod validators
-│   │   ├── to-drizzle.ts       Schema → Drizzle (optional/legacy)
-│   │   └── evolve.ts           Additive schema evolution
-│   ├── db/
-│   │   ├── client.ts           Shared libSQL client + Drizzle
-│   │   ├── schema.ts           Better Auth tables
-│   │   └── migrate.ts          Auth + metadata tables on boot
-│   ├── auth/                   Better Auth + middleware
-│   ├── collections/
-│   │   ├── table-create.ts     CREATE TABLE IF NOT EXISTS
-│   │   ├── serialize.ts        Shared serialize/deserialize
-│   │   ├── access.ts           RLS-lite access helpers (+ canReadRecord)
-│   │   ├── crud.ts             create/get/update/remove (+ publishChange)
-│   │   ├── query.ts            list + filter/sort/pagination
-│   │   └── router.ts           Hono CRUD routes
-│   ├── realtime/
-│   │   ├── bus.ts              In-process pub/sub + replay buffer
-│   │   └── router.ts           GET /api/realtime SSE endpoint
-│   ├── files/
-│   │   ├── driver.ts           StorageDriver interface
-│   │   ├── drivers/local.ts    Local disk driver
-│   │   ├── drivers/s3.ts       Bun.S3Client driver
-│   │   ├── storage.ts          Driver resolver + key generation
-│   │   ├── meta.ts             File metadata table
-│   │   └── router.ts           Upload/download routes
-│   └── server/                 CORS, errors, createApp()
-├── tests/                      Unit + integration tests
+│   ├── index.ts                Entry point
+│   ├── cli/index.ts            Standalone `base` CLI
+│   ├── server/bootstrap.ts     Injectable boot (server + CLI)
+│   ├── admin/                  Admin API + static SPA serving
+│   ├── observability/          Structured logs, audit, request IDs
+│   ├── backup/                 VACUUM INTO / JSONL backup+restore
+│   ├── openapi/                OpenAPI generator from registry
+│   ├── webhooks/               Outbound change delivery
+│   ├── auth/                   Better Auth + API keys + middleware
+│   ├── collections/            CRUD / query / access / router
+│   ├── realtime/               SSE pub/sub
+│   ├── files/                  Storage drivers + routes
+│   └── server/                 Hono app, CORS, rate limit, errors
+├── tests/
 └── package.json
 ```
 
@@ -77,15 +58,20 @@ Client Request
     ▼
 Hono App (createApp)
     │
+    ├── requestId + HTTP log middleware
     ├── CORS middleware
-    ├── Error handler (generic 500s in production)
+    ├── Rate limit middleware
+    ├── Error handler (requestId in payload)
     │
-    ├── /api/health
-    ├── /api/auth/me          → requireAuth
+    ├── /api/health|/live|/ready
+    ├── /api/openapi.json
+    ├── /api/auth/me          → requireAuth (session or API key)
     ├── /api/auth/*           → Better Auth
-    ├── /api/collections/*    → access rules + Zod + CRUD → publishChange
+    ├── /api/collections/*    → access rules + Zod + CRUD → publishChange → audit/webhooks
     ├── /api/realtime         → SSE (filtered by canReadRecord)
-    └── /api/files/*          → owner-only upload/download (local | s3)
+    ├── /api/files/*          → owner-only upload/download (local | s3)
+    ├── /api/admin/*          → requireAdmin (role=admin or X-Admin-Token)
+    └── /_/*                  → Admin SPA (when ADMIN_ENABLED)
 ```
 
 ## Key Design Patterns
@@ -99,31 +85,25 @@ const posts = defineCollection('posts', {
 })
 ```
 
-Generates: SQL table, Zod validators, REST routes, ownership filters, typed client methods + subscribe.
+Generates: SQL table, Zod validators, REST routes, ownership filters, typed client methods + subscribe, OpenAPI paths.
 
-### 2. Single Registry
+### 2. Admin identity
 
-`defineCollection()` registers into `registry.ts`. Server mounts from `getRegisteredCollections()`. Startup calls `validateRegistry()`.
+- `user.role` is `user` | `admin` (Better Auth `additionalFields`, `input: false`)
+- First registered user (or emails in `ADMIN_EMAILS`) is promoted to admin
+- Break-glass: `X-Admin-Token: $ADMIN_TOKEN` (min 32 chars)
 
-### 3. Shared DB Client
+### 3. Query operators
 
-One libSQL client from `src/db/client.ts` (`getClient()` / `initDb()`). Collections, files, and migrations all reuse it. WAL pragmas are awaited before boot continues.
+Filters support `field__op` / JSON `{op,value}`: `eq|ne|gt|gte|lt|lte|like|in|null|nnull`, plus `?search=` LIKE across string/text fields.
 
-### 4. Access Rules (RLS-lite)
+### 4. Additive Schema Evolution
 
-Per-collection `access` with levels `public` | `authenticated` | `owner`. Owner constraints are applied in SQL (list/get) and checked on mutate. Owner fields are server-set on create. `canReadRecord()` is the shared predicate used by HTTP get and SSE fan-out.
+`src/schema/evolve.ts` diffs registered schemas vs stored fingerprints. Destructive changes fail with a report. CLI: `bun run schema:status` / `schema:apply` or `base schema status|apply`.
 
-### 5. Additive Schema Evolution
+### 5. Realtime + webhooks
 
-`src/schema/evolve.ts` diffs registered schemas vs stored fingerprints. Supports new nullable/defaulted columns and indexes. Destructive changes fail with a report. CLI: `bun run schema:status` / `schema:apply`.
-
-### 6. Realtime (in-process SSE)
-
-`publishChange()` from CRUD fans out to subscribers on `GET /api/realtime?collections=...`. Filtering uses `canReadRecord`. Ring buffer supports `Last-Event-ID` replay. Single-process only (no cross-instance fan-out).
-
-### 7. Pluggable Storage
-
-`StorageDriver` interface with `local` and `s3` implementations. `storageKey` in DB is always a flat ULID; S3 prefix is driver-internal. Download mode: `proxy` (default) or `redirect` (presigned).
+`publishChange()` fans out SSE and optional outbound webhooks. Single-process SSE only.
 
 ## Development Commands
 
@@ -133,25 +113,29 @@ bun run start            # Production server
 bun run test             # bun test --concurrency=1
 bun run typecheck        # tsc --noEmit
 bun run check            # typecheck + test
+bun run build:admin      # Build admin SPA → src/admin/dist
 bun run schema:status    # Dry-run schema plan
 bun run schema:apply     # Apply additive migrations
 bun run generate:client  # Emit src/client/generated.ts
+bun run cli -- help      # Standalone CLI
+bun run build:binary     # Compile single-file executable
 ```
 
 ## Conventions
 
 - **ESM only** — imports use `.js` extensions
 - **TypeScript strict** — `bun run typecheck` must pass
-- **Error format:** `{ error: { code, message } }`
+- **Error format:** `{ error: { code, message, requestId? } }`
 - **Success format:** `{ data }` or `{ data, meta }`
 - **IDs:** ULID; **timestamps:** Unix ms
 - **Soft delete** by default; hard delete requires `HARD_DELETE_ENABLED=true`
 - **Auth required** by default; use `access` for ownership / public reads
 - **Better Auth user table** is `user` (singular) — use `f.reference('user')`
+- **Admin UI** builds to `src/admin/dist` (gitignored); placeholder served if missing
 
 ## What's NOT Here (Deferred)
 
 - Vector search endpoint (`f.vector()` stores only) — libSQL/Turso extension parity unresolved
-- Admin dashboard
 - GraphQL / functions / workflows
 - Cross-process realtime (multi-instance fan-out)
+- Expand/relations, batch transactions, email hooks, OAuth providers

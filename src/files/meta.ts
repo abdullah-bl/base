@@ -120,3 +120,30 @@ export async function listFileRecords(
     total,
   }
 }
+
+export async function listAllFileRecords(
+  page = 1,
+  perPage = 50,
+): Promise<{
+  data: FileRecord[]
+  meta: { page: number; perPage: number; total: number }
+}> {
+  await ensureTable()
+  const client = getClient()
+  const offset = (page - 1) * perPage
+
+  const countResult = await client.execute(
+    `SELECT COUNT(*) as total FROM "files"`,
+  )
+  const total = Number(countResult.rows[0]?.total || 0)
+
+  const result = await client.execute({
+    sql: `SELECT * FROM "files" ORDER BY "createdAt" DESC LIMIT ? OFFSET ?`,
+    args: [perPage, offset],
+  })
+
+  return {
+    data: (result.rows || []) as unknown as FileRecord[],
+    meta: { page, perPage, total },
+  }
+}

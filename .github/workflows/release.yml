@@ -1,0 +1,45 @@
+name: Release binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Build admin UI
+        run: bun run build:admin
+
+      - name: Typecheck & test
+        run: bun run check
+
+      - name: Compile binaries
+        run: bun run scripts/build-binaries.ts
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: base-binaries
+          path: dist/base-*
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/base-linux-x64
+            dist/base-linux-arm64
+            dist/base-darwin-arm64
+            dist/base-windows-x64.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

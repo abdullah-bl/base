@@ -27,7 +27,7 @@ const envSchema = z
     NODE_ENV: z
       .enum(['development', 'production', 'test'])
       .default('development'),
-    HARD_DELETE_ENABLED: boolFromEnv.default('false'),
+    HARD_DELETE_ENABLED: boolFromEnv,
     REALTIME_ENABLED: z
       .enum(['true', 'false'])
       .default('true')

@@ -150,7 +150,9 @@ async function ensureColumn(
 ): Promise<void> {
   const info = await client.execute(`PRAGMA table_info("${table}")`)
   const cols = new Set(
-    (info.rows || []).map((r) => String((r as { name: string }).name)),
+    (info.rows || []).map((r) =>
+      String((r as unknown as { name: string }).name),
+    ),
   )
   if (!cols.has(column)) {
     await client.execute(

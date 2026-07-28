@@ -1,9 +1,25 @@
 import type { ErrorHandler } from 'hono'
 import { ZodError } from 'zod'
 import env from '../env.js'
+import { logger } from '../observability/logger.js'
 
 export const errorHandler: ErrorHandler = (err, c) => {
-  console.error('❌ Error:', err)
+  let requestId: string | undefined
+  try {
+    requestId = c.get('requestId' as never) as string | undefined
+  } catch {
+    requestId = undefined
+  }
+
+  logger.error('error', err instanceof Error ? err.message : 'Unknown error', {
+    requestId,
+    path: c.req.path,
+    method: c.req.method,
+    meta: {
+      stack: err instanceof Error ? err.stack : undefined,
+      name: err instanceof Error ? err.name : undefined,
+    },
+  })
 
   if (err instanceof ZodError) {
     return c.json(
@@ -12,6 +28,7 @@ export const errorHandler: ErrorHandler = (err, c) => {
           code: 'VALIDATION_ERROR',
           message: 'Invalid request data',
           details: err.issues,
+          requestId,
         },
       },
       400,
@@ -28,6 +45,7 @@ export const errorHandler: ErrorHandler = (err, c) => {
         error: {
           code: e.code,
           message: e.message,
+          requestId,
         },
       },
       statusCode as any,
@@ -47,6 +65,7 @@ export const errorHandler: ErrorHandler = (err, c) => {
       error: {
         code: statusCode >= 500 ? 'INTERNAL_ERROR' : e.code || 'REQUEST_ERROR',
         message,
+        requestId,
       },
     },
     statusCode as any,

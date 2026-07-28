@@ -1,9 +1,11 @@
 # Base BaaS — Docker Compose for local development
-# Includes: Base app + MinIO (S3-compatible for file storage / Litestream testing)
+# Includes: Base app + optional Litestream + MinIO
 
 services:
   base:
-    build: .
+    build:
+      context: .
+      target: base
     ports:
       - "3000:3000"
     volumes:
@@ -13,7 +15,6 @@ services:
       - PORT=3000
       - NODE_ENV=development
       - DATABASE_URL=file:./data/app.db
-      # Required — no weak default. Copy from .env or export before compose up.
       - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET}
       - BETTER_AUTH_URL=http://localhost:3000
       - CORS_ORIGINS=http://localhost:3000
@@ -22,20 +23,38 @@ services:
       - MAX_FILE_SIZE=52428800
       - HARD_DELETE_ENABLED=false
       - REALTIME_ENABLED=true
-      # Uncomment to point uploads at the MinIO service (profile: storage):
+      - ADMIN_ENABLED=true
+      - ADMIN_PATH=/_
+      - BACKUP_DIR=./data/backups
+      - LOG_PERSIST=true
+      # Uncomment for MinIO uploads (profile: storage):
       # - STORAGE_DRIVER=s3
       # - S3_BUCKET=base-uploads
       # - S3_ENDPOINT=http://minio:9000
       # - S3_REGION=us-east-1
       # - S3_ACCESS_KEY_ID=${MINIO_ROOT_USER:-minioadmin}
       # - S3_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
-      # - FILES_DOWNLOAD_MODE=proxy
 
-  # MinIO — S3-compatible storage for file uploads and Litestream replicas (dev only)
-  # Defaults are intentionally well-known — override for anything beyond local use.
-  # Start with: docker compose --profile storage up
-  # Then create a bucket (e.g. base-uploads) in the console at http://localhost:9001
-  # Opt-in S3 driver tests: S3_TEST_BUCKET=base-uploads S3_ENDPOINT=http://localhost:9000 bun test tests/storage.test.ts
+  # Litestream continuous replication sidecar
+  # Start with: docker compose --profile replicate up
+  litestream:
+    build:
+      context: .
+      target: litestream
+    volumes:
+      - ./data:/data
+      - ./litestream.yml:/etc/litestream.yml:ro
+    environment:
+      - LITESTREAM_BUCKET=${LITESTREAM_BUCKET:-}
+      - S3_ENDPOINT=${S3_ENDPOINT:-http://minio:9000}
+      - S3_REGION=${S3_REGION:-us-east-1}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minioadmin}}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minioadmin}}
+    depends_on:
+      - base
+    profiles:
+      - replicate
+
   minio:
     image: minio/minio:latest
     ports:
