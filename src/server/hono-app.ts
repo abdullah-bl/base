@@ -5,6 +5,7 @@ import { authHandler } from '../auth/handler.js'
 import { requireAuth } from '../auth/middleware.js'
 import { createCollectionRouter } from '../collections/router.js'
 import { getRegisteredCollections } from '../schema/index-registry.js'
+import filesRouter from '../files/router.js'
 
 const app = new Hono()
 
@@ -44,5 +45,8 @@ for (const collection of collections) {
 if (collections.length > 0) {
   console.log(`📦 Mounted ${collections.length} collection(s): ${collections.map(c => c.name).join(', ')}`)
 }
+
+// File upload routes
+app.route('/api/files', filesRouter)
 
 export default app
