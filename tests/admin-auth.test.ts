@@ -70,7 +70,8 @@ describe('Admin auth', () => {
     )
     expect(res.status).toBe(200)
     const body = await json<{ data: { version: string } }>(res)
-    expect(body.data.version).toBe('0.1.0')
+    const { VERSION } = await import('../src/version.js')
+    expect(body.data.version).toBe(VERSION)
   })
 
   test('invalid admin token is rejected', async () => {
