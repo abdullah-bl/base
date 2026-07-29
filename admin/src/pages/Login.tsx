@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useQueryClient } from '@tanstack/react-query'
-import { authMe, getAdminToken, setAdminToken, signInEmail } from '../api'
+import { Link, useNavigate } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { api, authMe, getAdminToken, setAdminToken, signInEmail } from '../api'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -11,6 +11,26 @@ export default function Login() {
   const [token, setToken] = useState(getAdminToken() || '')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  const onboarding = useQuery({
+    queryKey: ['onboarding', 'status'],
+    queryFn: () =>
+      api<{ data: { needsSetup: boolean } }>('/api/admin/onboarding/status'),
+    retry: false,
+  })
+
+  const providers = useQuery({
+    queryKey: ['auth', 'providers'],
+    queryFn: () =>
+      api<{ data: Array<{ id: string; name: string }> }>('/api/auth/providers'),
+    retry: false,
+  })
+
+  useEffect(() => {
+    if (onboarding.data?.data.needsSetup) {
+      navigate('/setup', { replace: true })
+    }
+  }, [onboarding.data, navigate])
 
   useEffect(() => {
     void (async () => {
@@ -83,6 +103,21 @@ export default function Login() {
         </p>
         {error && <div className="error-banner">{error}</div>}
 
+        {(providers.data?.data || []).length > 0 && (
+          <div style={{ display: 'grid', gap: 8, marginBottom: '1rem' }}>
+            {providers.data!.data.map((p) => (
+              <a
+                key={p.id}
+                className="btn"
+                style={{ textAlign: 'center' }}
+                href={`/api/auth/sign-in/social?provider=${p.id}`}
+              >
+                Continue with {p.name}
+              </a>
+            ))}
+          </div>
+        )}
+
         <form onSubmit={onEmailSignIn}>
           <div className="field">
             <label htmlFor="email">Email</label>
@@ -108,12 +143,20 @@ export default function Login() {
               required
             />
           </div>
-          <button className="btn btn-primary" type="submit" disabled={busy} style={{ width: '100%' }}>
+          <button
+            className="btn btn-primary"
+            type="submit"
+            disabled={busy}
+            style={{ width: '100%' }}
+          >
             Sign in
           </button>
         </form>
 
-        <div className="faint" style={{ margin: '1.25rem 0 0.75rem', textAlign: 'center' }}>
+        <div
+          className="faint"
+          style={{ margin: '1.25rem 0 0.75rem', textAlign: 'center' }}
+        >
           or use ADMIN_TOKEN
         </div>
 
@@ -129,10 +172,19 @@ export default function Login() {
               placeholder="Paste ADMIN_TOKEN"
             />
           </div>
-          <button className="btn" type="submit" disabled={busy} style={{ width: '100%' }}>
+          <button
+            className="btn"
+            type="submit"
+            disabled={busy}
+            style={{ width: '100%' }}
+          >
             Continue with token
           </button>
         </form>
+
+        <p className="faint" style={{ marginTop: '1rem', fontSize: 12 }}>
+          First time? <Link to="/setup">Run setup</Link>
+        </p>
       </div>
     </div>
   )

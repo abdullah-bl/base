@@ -6,22 +6,21 @@ const NAV = [
   { to: '/', label: 'Overview', end: true },
   { to: '/data', label: 'Data' },
   { to: '/collections', label: 'Collections' },
-  { to: '/logs', label: 'Logs' },
-  { to: '/audit', label: 'Audit' },
   { to: '/users', label: 'Users' },
   { to: '/files', label: 'Files' },
+  { to: '/webhooks', label: 'Webhooks' },
   { to: '/realtime', label: 'Realtime' },
   { to: '/sql', label: 'SQL' },
   { to: '/backups', label: 'Backups' },
   { to: '/api-keys', label: 'API Keys' },
+  { to: '/logs', label: 'Logs' },
+  { to: '/audit', label: 'Audit' },
+  { to: '/security', label: 'Security' },
+  { to: '/system', label: 'System' },
   { to: '/settings', label: 'Settings' },
 ] as const
 
-export function Layout({
-  userLabel,
-}: {
-  userLabel?: string
-}) {
+export function Layout({ userLabel }: { userLabel?: string }) {
   const navigate = useNavigate()
 
   async function logout() {
@@ -58,7 +57,12 @@ export function Layout({
           <div className="muted" style={{ fontSize: 11, marginBottom: 6 }}>
             {userLabel || (getAdminToken() ? 'token auth' : '—')}
           </div>
-          <button type="button" className="btn" style={{ width: '100%' }} onClick={() => logout()}>
+          <button
+            type="button"
+            className="btn"
+            style={{ width: '100%' }}
+            onClick={() => logout()}
+          >
             Sign out
           </button>
           <div className="faint" style={{ marginTop: 8, fontSize: 11 }}>

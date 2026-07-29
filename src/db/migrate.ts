@@ -124,6 +124,41 @@ export async function autoMigrate(): Promise<void> {
       "createdAt" INTEGER NOT NULL,
       "updatedAt" INTEGER NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS "_base_settings" (
+      "key" TEXT PRIMARY KEY NOT NULL,
+      "value" TEXT NOT NULL,
+      "encrypted" INTEGER NOT NULL DEFAULT 0,
+      "updatedAt" INTEGER NOT NULL,
+      "updatedBy" TEXT
+    )`,
+    `CREATE TABLE IF NOT EXISTS "_base_collections" (
+      "id" TEXT PRIMARY KEY NOT NULL,
+      "name" TEXT NOT NULL UNIQUE,
+      "schemaJson" TEXT NOT NULL,
+      "draftJson" TEXT,
+      "version" INTEGER NOT NULL DEFAULT 1,
+      "fingerprint" TEXT NOT NULL,
+      "updatedAt" INTEGER NOT NULL,
+      "updatedBy" TEXT
+    )`,
+    `CREATE INDEX IF NOT EXISTS "idx_base_collections_name" ON "_base_collections" ("name")`,
+    `CREATE TABLE IF NOT EXISTS "_base_restart_jobs" (
+      "id" TEXT PRIMARY KEY NOT NULL,
+      "status" TEXT NOT NULL,
+      "reason" TEXT,
+      "actorId" TEXT,
+      "actorKind" TEXT,
+      "error" TEXT,
+      "createdAt" INTEGER NOT NULL,
+      "updatedAt" INTEGER NOT NULL,
+      "finishedAt" INTEGER
+    )`,
+    `CREATE TABLE IF NOT EXISTS "_base_onboarding" (
+      "id" TEXT PRIMARY KEY NOT NULL DEFAULT 'default',
+      "setupTokenHash" TEXT,
+      "completedAt" INTEGER,
+      "createdAt" INTEGER NOT NULL
+    )`,
   ]
 
   for (const stmt of statements) {

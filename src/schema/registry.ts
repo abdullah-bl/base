@@ -137,6 +137,19 @@ export function clearRegistry(): void {
   collectionRegistry.clear()
 }
 
+/** Replace or insert a collection (used by DB-backed schema reload). */
+export function upsertCollection(collection: CollectionSchema): void {
+  if (collectionRegistry.has(collection.name)) {
+    collectionRegistry.set(collection.name, collection)
+    return
+  }
+  registerCollection(collection)
+}
+
+export function removeCollection(name: string): boolean {
+  return collectionRegistry.delete(name)
+}
+
 /**
  * Auto-register the Better Auth user table as a reference target.
  * Better Auth uses the table name "user" (singular).

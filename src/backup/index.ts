@@ -28,6 +28,7 @@ import {
 import { autoMigrate } from '../db/migrate.js'
 import { applyEvolution } from '../schema/evolve.js'
 import { writeAudit } from '../observability/audit.js'
+import { VERSION } from '../version.js'
 
 export interface BackupManifest {
   id: string
@@ -117,7 +118,7 @@ export async function createBackup(opts?: {
 
   const manifest: BackupManifest = {
     id,
-    version: '0.1.0',
+    version: VERSION,
     timestamp: ts,
     sha256,
     dbFile,

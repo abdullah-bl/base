@@ -1,5 +1,6 @@
 import { getRegisteredCollections } from '../schema/registry.js'
 import type { CollectionSchema, FieldSchema } from '../schema/types.js'
+import { VERSION } from '../version.js'
 
 function fieldToSchema(field: FieldSchema): Record<string, unknown> {
   switch (field.type) {
@@ -155,6 +156,13 @@ export function generateOpenApiSpec(baseUrl = 'http://localhost:3000') {
           { name: 'page', in: 'query', schema: { type: 'integer' } },
           { name: 'perPage', in: 'query', schema: { type: 'integer' } },
           { name: 'search', in: 'query', schema: { type: 'string' } },
+          {
+            name: 'join',
+            in: 'query',
+            schema: { type: 'string' },
+            description:
+              'Comma-separated relations to embed in each record (e.g. author,comments or authorId). Nested: comments.author. Alias: writer:authorId. FK scalars are kept; related objects/arrays are merged into data.',
+          },
         ],
         responses: { '200': { description: 'List result' } },
         security: [{ cookieAuth: [] }, { bearerAuth: [] }],
@@ -180,6 +188,13 @@ export function generateOpenApiSpec(baseUrl = 'http://localhost:3000') {
         tags: [collection.name],
         parameters: [
           { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          {
+            name: 'join',
+            in: 'query',
+            schema: { type: 'string' },
+            description:
+              'Comma-separated relations embedded into data (same semantics as list ?join=)',
+          },
         ],
         responses: {
           '200': { description: 'Record' },
@@ -221,7 +236,7 @@ export function generateOpenApiSpec(baseUrl = 'http://localhost:3000') {
     openapi: '3.0.3',
     info: {
       title: 'Base BaaS API',
-      version: '0.1.0',
+      version: VERSION,
       description:
         'Schema-driven REST API generated from registered collections.',
     },

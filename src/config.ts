@@ -52,10 +52,18 @@ export const storagePath = getUploadsDir()
 /** @deprecated use getUploadsDir() */
 export const uploadsDir = getUploadsDir()
 
+/** Runtime override set by settings layer after init */
+let hardDeleteOverride: boolean | null = null
+
+export function setHardDeleteOverride(value: boolean | null): void {
+  hardDeleteOverride = value
+}
+
 export const config = {
   AUTO_MIGRATE: true,
   SOFT_DELETE: true,
   get HARD_DELETE_ENABLED() {
+    if (typeof hardDeleteOverride === 'boolean') return hardDeleteOverride
     return env.HARD_DELETE_ENABLED
   },
 }
