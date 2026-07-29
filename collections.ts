@@ -1,9 +1,12 @@
 /**
- * Define your collections here.
- * Each collection becomes a SQLite table + REST CRUD endpoints.
+ * Optional legacy seed file.
+ *
+ * Prefer Admin UI → Collections (DB-backed schema is the source of truth).
+ * On first boot, collections defined here are imported into `_base_collections`
+ * once; afterward edits should happen in Admin (with JSON/TS export available).
  *
  * API: /api/collections/<name>
- *   GET    /           → list (paginated, filtered)
+ *   GET    /           → list (paginated, filtered, ?expand=, ?search=)
  *   GET    /:id        → get by ID
  *   POST   /           → create
  *   PATCH  /:id        → update

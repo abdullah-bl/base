@@ -36,7 +36,7 @@ export async function createApiKey(opts: {
   const keyHash = hashKey(raw)
   const keyPrefix = raw.slice(0, 12)
   const createdAt = Date.now()
-  const scopes = opts.scopes ?? ['*']
+  const scopes = opts.scopes ?? ['collections:*']
 
   const client = getClient()
   await client.execute({
@@ -98,12 +98,27 @@ export async function deleteApiKey(id: string): Promise<boolean> {
   return (result.rowsAffected || 0) > 0
 }
 
+export function apiKeyHasScope(scopes: string[], needed: string): boolean {
+  if (scopes.includes('*') || scopes.includes('admin')) return true
+  if (scopes.includes(needed)) return true
+  // Wildcard prefix: collections:* matches collections:posts
+  const [neededNs] = needed.split(':')
+  if (scopes.includes(`${neededNs}:*`)) return true
+  return false
+}
+
 /**
  * Validate a Bearer API key. Returns a synthetic user-like object on success.
+ * Admin role is granted only when scopes include `admin` or `*`.
  */
 export async function verifyApiKey(
   raw: string,
-): Promise<{ id: string; name: string; role: 'admin'; scopes: string[] } | null> {
+): Promise<{
+  id: string
+  name: string
+  role: 'admin' | 'user'
+  scopes: string[]
+} | null> {
   if (!raw.startsWith('base_')) return null
   const keyHash = hashKey(raw)
   const client = getClient()
@@ -125,11 +140,12 @@ export async function verifyApiKey(
     args: [Date.now(), String(row.id)],
   })
 
-  const scopes = JSON.parse(String(row.scopes || '["*"]')) as string[]
+  const scopes = JSON.parse(String(row.scopes || '["collections:*"]')) as string[]
+  const isAdmin = apiKeyHasScope(scopes, 'admin')
   return {
     id: `apikey:${row.id}`,
     name: String(row.name),
-    role: 'admin',
+    role: isAdmin ? 'admin' : 'user',
     scopes,
   }
 }

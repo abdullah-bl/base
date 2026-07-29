@@ -17,7 +17,12 @@ export interface AuditEntry {
 }
 
 export async function writeAudit(opts: {
-  actor?: AdminActor | { kind: 'user'; userId: string } | { kind: 'system' } | null
+  actor?:
+    | AdminActor
+    | { kind: 'user'; userId: string }
+    | { kind: 'system' }
+    | { kind: 'admin_token' }
+    | null
   action: string
   collection?: string | null
   recordId?: string | null
@@ -30,12 +35,15 @@ export async function writeAudit(opts: {
   let actorId: string | null = null
   let actorKind = 'system'
   if (actor) {
-    if (actor.kind === 'token') {
+    if (actor.kind === 'token' || actor.kind === 'admin_token') {
       actorKind = 'token'
       actorId = 'admin-token'
     } else if (actor.kind === 'user') {
       actorKind = 'user'
       actorId = actor.userId
+    } else if (actor.kind === 'api_key') {
+      actorKind = 'api_key'
+      actorId = (actor as { keyId: string }).keyId
     } else {
       actorKind = 'system'
     }

@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { authMe, getAdminToken } from './api'
+import { api, authMe, getAdminToken } from './api'
 import { Layout } from './components/Layout'
 import Login from './pages/Login'
+import Setup from './pages/Setup'
 import Overview from './pages/Overview'
 import Data from './pages/Data'
 import Collections from './pages/Collections'
@@ -15,21 +16,35 @@ import Sql from './pages/Sql'
 import Backups from './pages/Backups'
 import Settings from './pages/Settings'
 import ApiKeys from './pages/ApiKeys'
+import System from './pages/System'
+import Security from './pages/Security'
+import Webhooks from './pages/Webhooks'
 
 function AuthGate() {
   const token = getAdminToken()
+  const onboarding = useQuery({
+    queryKey: ['onboarding', 'status'],
+    queryFn: () =>
+      api<{ data: { needsSetup: boolean } }>('/api/admin/onboarding/status'),
+    retry: false,
+  })
   const me = useQuery({
     queryKey: ['auth', 'me'],
     queryFn: authMe,
     retry: false,
+    enabled: !onboarding.data?.data.needsSetup,
   })
 
-  if (me.isLoading) {
+  if (onboarding.isLoading || me.isLoading) {
     return (
       <div className="login-page">
         <div className="muted">Checking session…</div>
       </div>
     )
+  }
+
+  if (onboarding.data?.data.needsSetup) {
+    return <Navigate to="/setup" replace />
   }
 
   const user = me.data?.user
@@ -48,6 +63,7 @@ function AuthGate() {
 export default function App() {
   return (
     <Routes>
+      <Route path="/setup" element={<Setup />} />
       <Route path="/login" element={<Login />} />
       <Route element={<AuthGate />}>
         <Route index element={<Overview />} />
@@ -62,6 +78,9 @@ export default function App() {
         <Route path="sql" element={<Sql />} />
         <Route path="backups" element={<Backups />} />
         <Route path="api-keys" element={<ApiKeys />} />
+        <Route path="webhooks" element={<Webhooks />} />
+        <Route path="security" element={<Security />} />
+        <Route path="system" element={<System />} />
         <Route path="settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

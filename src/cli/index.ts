@@ -12,8 +12,12 @@ Usage:
   base [command] [options]
 
 Commands:
-  serve                   Start the HTTP server (default)
-  doctor                  Check environment / DB connectivity
+  serve                   Start the HTTP server (supervised by default)
+  serve --no-supervise    Start worker only (no supervisor)
+  init                    Scaffold .env, data/, optional collections.ts
+  restart                 Request a supervised process restart
+  doctor                  Check environment / DB / security
+  doctor --security       Run security checklist
   version                 Print version
 
   admin create            Create an admin user (via sign-up + promote)
@@ -53,7 +57,12 @@ Global options:
 }
 
 async function loadCollections(pathArg?: string) {
+  const { existsSync } = await import('node:fs')
   const path = resolve(process.cwd(), pathArg || './collections.ts')
+  if (!existsSync(path)) {
+    console.log(`ℹ️  No collections file at ${path} — using DB schema store`)
+    return
+  }
   await import(pathToFileURL(path).href)
 }
 
@@ -64,6 +73,84 @@ async function withDb(fn: () => Promise<void>, collectionsPath?: string) {
     loadCollections: () => loadCollections(collectionsPath),
   })
   await fn()
+}
+
+async function runInit() {
+  const { existsSync, mkdirSync, writeFileSync, readFileSync } = await import(
+    'node:fs'
+  )
+  const cwd = process.cwd()
+  mkdirSync(resolve(cwd, 'data'), { recursive: true })
+  mkdirSync(resolve(cwd, 'data/uploads'), { recursive: true })
+  mkdirSync(resolve(cwd, 'data/backups'), { recursive: true })
+
+  const envPath = resolve(cwd, '.env')
+  if (!existsSync(envPath)) {
+    const example = resolve(cwd, '.env.example')
+    if (existsSync(example)) {
+      writeFileSync(envPath, readFileSync(example))
+    } else {
+      const secret = Buffer.from(await cryptoGetRandom(32)).toString('base64')
+      writeFileSync(
+        envPath,
+        [
+          `PORT=3000`,
+          `DATABASE_URL=file:./data/app.db`,
+          `BETTER_AUTH_SECRET=${secret}`,
+          `BETTER_AUTH_URL=http://localhost:3000`,
+          `CORS_ORIGINS=http://localhost:3000`,
+          `ADMIN_ENABLED=true`,
+          `STORAGE_DRIVER=local`,
+          `STORAGE_PATH=./data/uploads`,
+          `BACKUP_DIR=./data/backups`,
+          '',
+        ].join('\n'),
+      )
+    }
+    console.log('✅ Created .env')
+  } else {
+    console.log('ℹ️  .env already exists — skipped')
+  }
+
+  const collectionsPath = resolve(cwd, 'collections.ts')
+  if (!existsSync(collectionsPath)) {
+    writeFileSync(
+      collectionsPath,
+      `/**
+ * Optional legacy seed file. Prefer Admin → Collections (DB-backed schema).
+ * On first boot, collections defined here are imported into the database once.
+ */
+import { defineCollection, f } from './src/schema/define.js'
+
+export const posts = defineCollection('posts', {
+  fields: {
+    title: f.string().required().max(200),
+    content: f.text().optional(),
+    slug: f.string().unique(),
+    published: f.boolean().default(false),
+    authorId: f.reference('user').required(),
+  },
+  access: {
+    create: 'owner',
+    read: 'owner',
+    update: 'owner',
+    delete: 'owner',
+    ownerField: 'authorId',
+  },
+})
+`,
+    )
+    console.log('✅ Created collections.ts (optional seed)')
+  } else {
+    console.log('ℹ️  collections.ts already exists — skipped')
+  }
+
+  console.log('✅ Init complete. Run: base serve')
+}
+
+async function cryptoGetRandom(n: number): Promise<Uint8Array> {
+  const { randomBytes } = await import('node:crypto')
+  return randomBytes(n)
 }
 
 async function main() {
@@ -79,6 +166,12 @@ async function main() {
       confirm: { type: 'boolean' },
       level: { type: 'string' },
       page: { type: 'string' },
+      security: { type: 'boolean' },
+      'no-supervise': { type: 'boolean' },
+      init: { type: 'boolean' },
+      port: { type: 'string', short: 'p' },
+      host: { type: 'string', short: 'H' },
+      reason: { type: 'string' },
     },
     allowPositionals: true,
     strict: false,
@@ -98,11 +191,54 @@ async function main() {
     return
   }
 
+  if (cmd === 'init') {
+    await runInit()
+    return
+  }
+
+  if (cmd === 'restart') {
+    // CLI restart: signal supervised worker via env file / direct exit when supervised
+    if (process.env.BASE_SUPERVISED === '1') {
+      const { RESTART_EXIT_CODE } = await import('../server/restart.js')
+      console.log('🔄 Requesting supervised restart…')
+      process.exit(RESTART_EXIT_CODE)
+    }
+    console.error(
+      'base restart requires a supervised process (base serve). Use Admin UI → System → Restart, or run under supervisor.',
+    )
+    process.exit(1)
+  }
+
   if (cmd === 'serve') {
+    if (values.init) {
+      await runInit()
+    }
+
+    const noSupervise = Boolean(values['no-supervise'])
+    const isWorker =
+      process.env.BASE_ROLE === 'worker' || process.env.BASE_SUPERVISED === '1'
+
+    if (!noSupervise && !isWorker && process.env.BASE_ROLE !== 'supervisor') {
+      const { runSupervisor } = await import('../server/supervisor.js')
+      const workerArgs = [Bun.argv[1], 'serve', '--no-supervise']
+      if (collectionsPath) workerArgs.push('--collections', collectionsPath)
+      if (values.port) workerArgs.push('--port', String(values.port))
+      await runSupervisor({
+        execPath: process.execPath,
+        workerArgs,
+      })
+      return
+    }
+
+    if (values.port) {
+      process.env.PORT = String(values.port)
+    }
+
     const { bootstrap } = await import('../server/bootstrap.js')
     await bootstrap({
       serve: true,
       loadCollections: () => loadCollections(collectionsPath),
+      port: values.port ? Number(values.port) : undefined,
     })
     return
   }
@@ -117,6 +253,22 @@ async function main() {
       console.log(`   STORAGE_DRIVER=${env.STORAGE_DRIVER}`)
       console.log(`   ADMIN_ENABLED=${env.ADMIN_ENABLED}`)
       console.log(`   REALTIME_ENABLED=${env.REALTIME_ENABLED}`)
+
+      if (values.security) {
+        const { runSecurityChecklist } = await import(
+          '../security/checklist.js'
+        )
+        const report = await runSecurityChecklist()
+        console.log(`\n🔒 Security score: ${report.score}/100`)
+        for (const check of report.checks) {
+          console.log(
+            `   ${check.ok ? '✅' : '❌'} [${check.severity}] ${check.title} — ${check.detail}`,
+          )
+        }
+        if (report.failed > 0) process.exitCode = 1
+        return
+      }
+
       const { getRegisteredCollections } = await import(
         '../schema/registry.js'
       )

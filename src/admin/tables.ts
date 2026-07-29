@@ -12,6 +12,10 @@ const SYSTEM_TABLES = [
   '_base_audit',
   '_base_api_keys',
   '_base_webhooks',
+  '_base_settings',
+  '_base_collections',
+  '_base_restart_jobs',
+  '_base_onboarding',
 ] as const
 
 const IDENT = /^[a-zA-Z_][a-zA-Z0-9_]*$/

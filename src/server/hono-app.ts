@@ -4,7 +4,10 @@ import { errorHandler } from './error-handler.js'
 import { rateLimitMiddleware } from './rate-limit.js'
 import { authHandler } from '../auth/handler.js'
 import { requireAuth } from '../auth/middleware.js'
-import { createCollectionRouter } from '../collections/router.js'
+import {
+  createDynamicCollectionsRouter,
+  listMountedCollectionNames,
+} from '../collections/dynamic-router.js'
 import {
   getRegisteredCollections,
   validateRegistry,
@@ -15,12 +18,15 @@ import filesRouter from '../files/router.js'
 import { createRealtimeRouter } from '../realtime/router.js'
 import { createAdminRouter } from '../admin/router.js'
 import { mountAdminUi } from '../admin/static.js'
+import { mountOnboardingRoutes } from '../admin/control-plane.js'
 import { requestLogMiddleware } from '../observability/request-log.js'
 import { initLogBus } from '../observability/bus.js'
 import { generateOpenApiSpec } from '../openapi/generate.js'
 import { getClient } from '../db/client.js'
 import env from '../env.js'
 import { isMaintenanceMode, getMaintenanceReason } from './maintenance.js'
+import { isDraining } from './restart.js'
+import { getEffectiveRuntime } from '../settings/resolve.js'
 
 export function createApp(): Hono {
   ensureUsersCollection()
@@ -42,7 +48,11 @@ export function createApp(): Hono {
 
   app.get('/api/health', (c) => {
     return c.json({
-      status: isMaintenanceMode() ? 'maintenance' : 'ok',
+      status: isDraining()
+        ? 'draining'
+        : isMaintenanceMode()
+          ? 'maintenance'
+          : 'ok',
       timestamp: new Date().toISOString(),
       version: '0.1.0',
       uptime: process.uptime(),
@@ -56,6 +66,12 @@ export function createApp(): Hono {
   app.get('/api/health/ready', async (c) => {
     try {
       await getClient().execute('SELECT 1')
+      if (isDraining()) {
+        return c.json(
+          { status: 'not_ready', reason: 'Server is restarting' },
+          503,
+        )
+      }
       if (isMaintenanceMode()) {
         return c.json(
           {
@@ -77,9 +93,19 @@ export function createApp(): Hono {
     }
   })
 
-  app.get('/api/openapi.json', (c) => {
-    return c.json(generateOpenApiSpec(env.BETTER_AUTH_URL))
+  app.get('/api/openapi.json', async (c) => {
+    let baseUrl = env.BETTER_AUTH_URL
+    try {
+      const runtime = await getEffectiveRuntime()
+      baseUrl = runtime.publicUrl || baseUrl
+    } catch {
+      // ignore
+    }
+    return c.json(generateOpenApiSpec(baseUrl))
   })
+
+  // Onboarding + public auth providers (no admin gate)
+  mountOnboardingRoutes(app)
 
   app.get('/api/auth/me', requireAuth, (c) => {
     const user = c.get('user' as never) as any
@@ -90,17 +116,12 @@ export function createApp(): Hono {
     return await authHandler(c.req.raw)
   })
 
-  for (const collection of collections) {
-    app.route(
-      `/api/collections/${collection.name}`,
-      createCollectionRouter(collection),
-    )
-  }
+  // Dynamic collection dispatcher — schema resolved per request from registry
+  app.route('/api/collections', createDynamicCollectionsRouter())
 
-  if (collections.length > 0) {
-    console.log(
-      `📦 Mounted ${collections.length} collection(s): ${collections.map((c) => c.name).join(', ')}`,
-    )
+  const names = listMountedCollectionNames()
+  if (names.length > 0) {
+    console.log(`📦 Collections ready: ${names.join(', ')}`)
   }
 
   app.route('/api/files', filesRouter)

@@ -109,6 +109,16 @@ export async function createTestContext(options?: {
   const { autoMigrate } = await import('../../src/db/migrate.js')
   await autoMigrate()
 
+  const { resetMasterKeyForTests } = await import('../../src/settings/crypto.js')
+  resetMasterKeyForTests()
+  process.env.BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET || 'test-secret-at-least-32-characters-long'
+
+  const { initSettings, invalidateSettingsCache } = await import(
+    '../../src/settings/resolve.js'
+  )
+  invalidateSettingsCache()
+  await initSettings()
+
   if (options?.collections) {
     await options.collections()
   } else {
@@ -138,6 +148,13 @@ export async function createTestContext(options?: {
     })
   }
 
+  const {
+    importRegistryToDbIfEmpty,
+    loadRegistryFromDb,
+  } = await import('../../src/schema/collection-store.js')
+  await importRegistryToDbIfEmpty('test')
+  await loadRegistryFromDb()
+
   const { applyEvolution } = await import('../../src/schema/evolve.js')
   const { getRegisteredCollections } = await import(
     '../../src/schema/registry.js'
@@ -147,6 +164,14 @@ export async function createTestContext(options?: {
       (c) => c.name !== 'user' && c.name !== 'users',
     ),
   )
+
+  const { rebuildAuth } = await import('../../src/auth/auth.js')
+  await rebuildAuth()
+
+  const { resetDynamicRouterCache } = await import(
+    '../../src/collections/dynamic-router.js'
+  )
+  resetDynamicRouterCache()
 
   const app = createApp()
 

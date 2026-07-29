@@ -158,13 +158,90 @@ textarea {
   border-color: var(--accent);
 }
 
-.btn-primary:hover {
+.btn-primary:hover,
+.btn.primary:hover {
   filter: brightness(1.05);
 }
 
-.btn-danger {
+.btn.primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+
+.btn-danger,
+.btn.danger {
   color: var(--danger);
   border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+  background: var(--danger-bg);
+}
+
+.ok-banner {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  border-radius: 6px;
+  padding: 0.55rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.restart-banner {
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.restart-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.65rem;
+}
+
+.restart-step {
+  font-size: 11px;
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+
+.restart-step.done {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.restart-step.current {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.login-card {
+  width: min(28rem, 100%);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
+}
+
+.field span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.field input,
+.field select,
+.panel input,
+.panel select,
+.panel textarea {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  border-radius: 6px;
+  padding: 0.45rem 0.55rem;
+  width: 100%;
 }
 
 .input,

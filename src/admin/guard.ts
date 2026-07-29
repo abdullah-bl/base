@@ -1,11 +1,13 @@
 import { timingSafeEqual } from 'node:crypto'
 import type { Context, Next } from 'hono'
 import { getAuth } from '../auth/auth.js'
+import { apiKeyHasScope, verifyApiKey } from '../auth/api-keys.js'
 import env from '../env.js'
 
 export type AdminActor =
   | { kind: 'user'; userId: string; email?: string; role: string }
   | { kind: 'token' }
+  | { kind: 'api_key'; keyId: string; scopes: string[] }
 
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a)
@@ -15,7 +17,10 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Require admin access via session role=admin OR X-Admin-Token matching ADMIN_TOKEN.
+ * Require admin access via:
+ * - session role=admin
+ * - X-Admin-Token matching ADMIN_TOKEN (break-glass)
+ * - Bearer API key with `admin` or `*` scope
  */
 export async function requireAdmin(c: Context, next: Next) {
   const tokenHeader = c.req.header('X-Admin-Token')
@@ -30,6 +35,35 @@ export async function requireAdmin(c: Context, next: Next) {
       } as never)
       await next()
       return
+    }
+  }
+
+  const authHeader = c.req.header('Authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    const raw = authHeader.slice(7).trim()
+    if (raw.startsWith('base_')) {
+      const apiUser = await verifyApiKey(raw)
+      if (apiUser && apiKeyHasScope(apiUser.scopes, 'admin')) {
+        c.set('user', apiUser as never)
+        c.set('adminActor' as never, {
+          kind: 'api_key',
+          keyId: apiUser.id,
+          scopes: apiUser.scopes,
+        } as never)
+        await next()
+        return
+      }
+      if (apiUser) {
+        return c.json(
+          {
+            error: {
+              code: 'FORBIDDEN',
+              message: 'API key missing admin scope',
+            },
+          },
+          403,
+        )
+      }
     }
   }
 

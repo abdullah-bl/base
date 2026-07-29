@@ -4,6 +4,7 @@ import { getClient } from '../db/client.js'
 import env from '../env.js'
 import type { ChangeEvent } from '../realtime/bus.js'
 import { logger } from '../observability/logger.js'
+import { getCachedRuntimeOrEnv } from '../settings/resolve.js'
 
 export interface WebhookRecord {
   id: string
@@ -178,7 +179,12 @@ async function deliver(
 
 /** Fan-out change events to configured webhooks (fire-and-forget). */
 export function dispatchWebhooks(event: ChangeEvent): void {
-  if (!env.WEBHOOKS_ENABLED) return
+  const cached = getCachedRuntimeOrEnv()
+  const enabled =
+    typeof cached.webhooksEnabled === 'boolean'
+      ? cached.webhooksEnabled
+      : env.WEBHOOKS_ENABLED
+  if (!enabled) return
   void (async () => {
     try {
       const hooks = await listWebhooks()

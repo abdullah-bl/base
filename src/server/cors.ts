@@ -16,7 +16,13 @@ function parseCorsOrigins(): string | string[] | ((origin: string) => string | u
 export const corsMiddleware = cors({
   origin: parseCorsOrigins(),
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'Last-Event-ID', 'Accept'],
+  allowHeaders: [
+    'Content-Type',
+    'Authorization',
+    'Last-Event-ID',
+    'Accept',
+    'X-Admin-Token',
+  ],
   credentials: true,
   maxAge: 86400,
 })

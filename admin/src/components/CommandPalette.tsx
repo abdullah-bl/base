@@ -9,10 +9,13 @@ const ROUTES = [
   { path: '/audit', label: 'Audit' },
   { path: '/users', label: 'Users' },
   { path: '/files', label: 'Files' },
+  { path: '/webhooks', label: 'Webhooks' },
   { path: '/realtime', label: 'Realtime' },
   { path: '/sql', label: 'SQL' },
   { path: '/backups', label: 'Backups' },
   { path: '/api-keys', label: 'API Keys' },
+  { path: '/security', label: 'Security' },
+  { path: '/system', label: 'System' },
   { path: '/settings', label: 'Settings' },
 ]
 

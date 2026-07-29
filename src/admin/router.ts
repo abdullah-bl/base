@@ -12,7 +12,7 @@ import {
 import { getAllowedTables } from './tables.js'
 import { getClient } from '../db/client.js'
 import { getDbPath } from '../config.js'
-import env, { loadEnv } from '../env.js'
+import env from '../env.js'
 import {
   applyEvolution,
   fingerprintCollection,
@@ -41,7 +41,6 @@ import {
   subscribeLogs,
 } from '../observability/bus.js'
 import { getRequestId } from '../observability/request-log.js'
-import { redact } from '../observability/logger.js'
 import {
   getRecentEvents,
   getSubscriberCount,
@@ -58,6 +57,8 @@ import {
   listWebhooks,
   updateWebhook,
 } from '../webhooks/index.js'
+import { mountControlPlane } from './control-plane.js'
+import { getEffectiveRuntime } from '../settings/resolve.js'
 
 const VERSION = '0.1.0'
 
@@ -65,6 +66,7 @@ export function createAdminRouter(): Hono {
   initLogBus()
   const router = new Hono()
   router.use('*', requireAdmin)
+  mountControlPlane(router)
 
   // ── Overview ──────────────────────────────────────────────
   router.get('/overview', async (c) => {
@@ -456,11 +458,19 @@ export function createAdminRouter(): Hono {
         400,
       )
     }
-    const ok = await setUserRole(id, body.role)
-    if (!ok) {
+    try {
+      const ok = await setUserRole(id, body.role)
+      if (!ok) {
+        return c.json(
+          { error: { code: 'NOT_FOUND', message: 'User not found' } },
+          404,
+        )
+      }
+    } catch (err) {
+      const e = err as Error & { status?: number; code?: string }
       return c.json(
-        { error: { code: 'NOT_FOUND', message: 'User not found' } },
-        404,
+        { error: { code: e.code || 'VALIDATION_ERROR', message: e.message } },
+        (e.status as 400) || 400,
       )
     }
     await writeAudit({
@@ -504,6 +514,23 @@ export function createAdminRouter(): Hono {
         { error: { code: 'NOT_FOUND', message: 'User not found' } },
         404,
       )
+    }
+    const role = String((before.rows[0] as { role?: string }).role || '')
+    if (role === 'admin') {
+      const admins = await client.execute(
+        `SELECT COUNT(*) as total FROM "user" WHERE "role" = 'admin'`,
+      )
+      if (Number(admins.rows[0]?.total || 0) <= 1) {
+        return c.json(
+          {
+            error: {
+              code: 'LAST_ADMIN',
+              message: 'Cannot delete the last admin',
+            },
+          },
+          400,
+        )
+      }
     }
     await client.execute({
       sql: `DELETE FROM "session" WHERE "userId" = ?`,
@@ -579,43 +606,18 @@ export function createAdminRouter(): Hono {
   })
 
   // ── Realtime ──────────────────────────────────────────────
-  router.get('/realtime', (c) => {
+  router.get('/realtime', async (c) => {
+    const runtime = await getEffectiveRuntime()
     return c.json({
       data: {
-        enabled: env.REALTIME_ENABLED,
+        enabled: runtime.realtimeEnabled,
         subscribers: getSubscriberCount(),
         recentEvents: getRecentEvents(50),
       },
     })
   })
 
-  // ── Settings ──────────────────────────────────────────────
-  router.get('/settings', (c) => {
-    const e = loadEnv()
-    const redacted = redact({
-      ...e,
-      BETTER_AUTH_SECRET: '[REDACTED]',
-      ADMIN_TOKEN: e.ADMIN_TOKEN ? '[REDACTED]' : undefined,
-      S3_SECRET_ACCESS_KEY: e.S3_SECRET_ACCESS_KEY
-        ? '[REDACTED]'
-        : undefined,
-      DATABASE_AUTH_TOKEN: e.DATABASE_AUTH_TOKEN ? '[REDACTED]' : undefined,
-    })
-    return c.json({
-      data: {
-        env: redacted,
-        features: {
-          softDelete: true,
-          hardDelete: env.HARD_DELETE_ENABLED,
-          realtime: env.REALTIME_ENABLED,
-          admin: env.ADMIN_ENABLED,
-          rateLimit: env.RATE_LIMIT_ENABLED,
-          webhooks: env.WEBHOOKS_ENABLED,
-          logPersist: env.LOG_PERSIST,
-        },
-      },
-    })
-  })
+  // Settings moved to control-plane (GET/PATCH /settings)
 
   // ── Metrics ───────────────────────────────────────────────
   router.get('/metrics', async (c) => {

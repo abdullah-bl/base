@@ -138,7 +138,7 @@ bun run build:binary     # Compile single-file executable
 - Vector search endpoint (`f.vector()` stores only) — libSQL/Turso extension parity unresolved
 - GraphQL / functions / workflows
 - Cross-process realtime (multi-instance fan-out)
-- Expand/relations, batch transactions, email hooks, OAuth providers
+- Batch transactions / aggregations (expand/relations, email templates, OAuth, and DB-backed admin settings are implemented)
 
 ## Binary Releases (No Source Checkout Required at Runtime)
 
