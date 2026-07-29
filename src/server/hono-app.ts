@@ -27,6 +27,7 @@ import env from '../env.js'
 import { isMaintenanceMode, getMaintenanceReason } from './maintenance.js'
 import { isDraining } from './restart.js'
 import { getEffectiveRuntime } from '../settings/resolve.js'
+import { VERSION } from '../version.js'
 
 export function createApp(): Hono {
   ensureUsersCollection()
@@ -54,7 +55,7 @@ export function createApp(): Hono {
           ? 'maintenance'
           : 'ok',
       timestamp: new Date().toISOString(),
-      version: '0.1.0',
+      version: VERSION,
       uptime: process.uptime(),
     })
   })

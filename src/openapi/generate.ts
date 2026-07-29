@@ -1,5 +1,6 @@
 import { getRegisteredCollections } from '../schema/registry.js'
 import type { CollectionSchema, FieldSchema } from '../schema/types.js'
+import { VERSION } from '../version.js'
 
 function fieldToSchema(field: FieldSchema): Record<string, unknown> {
   switch (field.type) {
@@ -235,7 +236,7 @@ export function generateOpenApiSpec(baseUrl = 'http://localhost:3000') {
     openapi: '3.0.3',
     info: {
       title: 'Base BaaS API',
-      version: '0.1.0',
+      version: VERSION,
       description:
         'Schema-driven REST API generated from registered collections.',
     },

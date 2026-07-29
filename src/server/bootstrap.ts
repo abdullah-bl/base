@@ -18,6 +18,7 @@ import {
   setActiveServer,
 } from './restart.js'
 import { resetDynamicRouterCache } from '../collections/dynamic-router.js'
+import { VERSION } from '../version.js'
 
 export interface BootstrapOptions {
   /** Load/register collections before the app is created (legacy collections.ts) */
@@ -139,7 +140,7 @@ export async function bootstrap(
   console.log(`   Port: ${server.port}`)
   console.log(`   Database: ${env.DATABASE_URL}`)
   console.log(`   Storage: ${env.STORAGE_DRIVER}`)
-  console.log(`   Version: 0.1.0`)
+  console.log(`   Version: ${VERSION}`)
   if (env.ADMIN_ENABLED) {
     console.log(`   Admin UI: http://localhost:${PORT}${env.ADMIN_PATH}/`)
   }

@@ -59,8 +59,7 @@ import {
 } from '../webhooks/index.js'
 import { mountControlPlane } from './control-plane.js'
 import { getEffectiveRuntime } from '../settings/resolve.js'
-
-const VERSION = '0.1.0'
+import { VERSION } from '../version.js'
 
 export function createAdminRouter(): Hono {
   initLogBus()

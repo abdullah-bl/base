@@ -2,8 +2,7 @@
 import { parseArgs } from 'node:util'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-
-const VERSION = '0.1.0'
+import { VERSION } from '../version.js'
 
 function printHelp() {
   console.log(`Base CLI v${VERSION}
