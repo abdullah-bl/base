@@ -6,7 +6,7 @@
  * once; afterward edits should happen in Admin (with JSON/TS export available).
  *
  * API: /api/collections/<name>
- *   GET    /           → list (paginated, filtered, ?expand=, ?search=)
+ *   GET    /           → list (paginated, filtered, ?join=, ?search=)
  *   GET    /:id        → get by ID
  *   POST   /           → create
  *   PATCH  /:id        → update

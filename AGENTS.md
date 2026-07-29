@@ -138,7 +138,16 @@ bun run build:binary     # Compile single-file executable
 - Vector search endpoint (`f.vector()` stores only) — libSQL/Turso extension parity unresolved
 - GraphQL / functions / workflows
 - Cross-process realtime (multi-instance fan-out)
-- Batch transactions / aggregations (expand/relations, email templates, OAuth, and DB-backed admin settings are implemented)
+- Batch transactions / aggregations (relation joins, email templates, OAuth, and DB-backed admin settings are implemented)
+
+### Relation joins (not PocketBase expand)
+
+```
+GET /api/collections/posts?join=author,comments
+GET /api/collections/posts/:id?join=authorId
+```
+
+Related rows are merged into `data` (`author`, `comments[]`). FK scalars like `authorId` stay. Access uses the same `canReadRecord` layer as CRUD/SSE.
 
 ## Binary Releases (No Source Checkout Required at Runtime)
 

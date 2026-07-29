@@ -12,7 +12,7 @@ import { getRequestId } from '../observability/request-log.js'
 import { fingerprintCollection } from '../schema/evolve.js'
 import type { CollectionSchema } from '../schema/types.js'
 import { parseFilterParam } from './router.js'
-import { expandRecords } from './expand.js'
+import { joinRecords } from './join.js'
 
 const zodCache = new Map<string, ReturnType<typeof schemaToZod>>()
 
@@ -138,12 +138,13 @@ export function createDynamicCollectionsRouter(): Hono {
 
     try {
       const result = await list(collection, params, user ?? null)
-      const expand = c.req.query('expand')
-      if (expand && result.data?.length) {
-        result.data = await expandRecords(
+      const join =
+        c.req.query('join') || c.req.query('include') || undefined
+      if (join && result.data?.length) {
+        result.data = await joinRecords(
           collection,
           result.data as Record<string, unknown>[],
-          expand,
+          join,
           user ?? null,
         )
       }
@@ -166,15 +167,16 @@ export function createDynamicCollectionsRouter(): Hono {
           404,
         )
       }
-      const expand = c.req.query('expand')
-      if (expand) {
-        const [expanded] = await expandRecords(
+      const join =
+        c.req.query('join') || c.req.query('include') || undefined
+      if (join) {
+        const [joined] = await joinRecords(
           collection,
           [record],
-          expand,
+          join,
           user ?? null,
         )
-        record = expanded
+        record = joined
       }
       return c.json({ data: record })
     } catch (err) {
